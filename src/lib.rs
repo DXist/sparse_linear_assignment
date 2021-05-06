@@ -1,7 +1,8 @@
+#![feature(total_cmp)]
 const NONE: u32 = u32::MAX;
 
 #[inline]
-pub fn cumulative_idxs(arr: &[u32]) -> Vec<u32> {
+fn cumulative_idxs(arr: &[u32]) -> Vec<u32> {
     // Given an ordered set of integers 0-N, returns an array of size N+1, where each element gives the index of
     //  stop of the number / start of the next
     // [0, 0, 0, 1, 1, 1, 1] -> [0, 3, 7]
@@ -66,6 +67,84 @@ fn push_all_left(data: &mut [u32], mapper: &mut [u32], num_ints: usize) {
         }
 
         left_track += 1;
+    }
+}
+
+/// Solver for auction problem
+/// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
+struct AuctionSolver {
+    num_rows: usize,
+    num_cols: usize,
+    prices: Vec<f64>,
+    i_starts_stops: Vec<u32>,
+    j_counts: Vec<u32>,
+    column_indices: Vec<u32>,
+    // memory view of all values
+    values: Vec<f32>,
+    // index i gives the object, j, owned by person i
+    person_to_object: Vec<u32>,
+    // index j gives the person, i, who owns object j
+    // object_to_person: Vec<u32>,
+    eps: f32,
+    target_eps: f32,
+    theta: f32,
+    //meta
+    nits: u32,
+    nreductions: u32,
+    ece_satisfied: bool,
+    optimal_soln_found: bool,
+    final_eps: f32,
+    // assignment storage
+    num_unassigned: u32,
+    unassigned_people: Vec<u32>,
+    person_to_assignment_idx: Vec<u32>,
+}
+
+impl AuctionSolver {
+    fn new(
+        num_rows: usize,
+        num_cols: usize,
+        row_indices: &[u32],
+        column_indices: Vec<u32>,
+        values: Vec<f32>,
+    ) -> AuctionSolver {
+        let prices = vec![0.; num_cols];
+        let i_starts_stops = cumulative_idxs(row_indices);
+        let j_counts = diff(&i_starts_stops);
+        // Calculate optimum initial eps and target eps
+        // = max |aij| for all i, j in A(i)
+        let c = values
+            .iter()
+            .max_by(|x, y| x.total_cmp(y))
+            .expect("values should be empty");
+
+        // choose eps values
+        let eps = c / 2.0;
+        let target_eps = 1.0 / num_rows as f32;
+        let theta = 0.15; // reduction factor
+
+        AuctionSolver {
+            num_rows,
+            num_cols,
+            i_starts_stops,
+            j_counts,
+            prices,
+            column_indices,
+            values,
+            person_to_object: vec![NONE; num_rows],
+            // object_to_person: vec![NONE, num_cols],
+            eps,
+            target_eps,
+            theta,
+            nits: 0,
+            nreductions: 0,
+            ece_satisfied: false,
+            optimal_soln_found: false,
+            final_eps: 0.,
+            num_unassigned: num_rows as u32,
+            unassigned_people: (0..num_rows as u32).collect(),
+            person_to_assignment_idx: (0..num_rows as u32).collect(),
+        }
     }
 }
 
