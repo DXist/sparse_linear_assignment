@@ -332,11 +332,11 @@ impl AuctionSolver {
 
         let mut num_successful_bids = 0; // counter of how many succesful bids
 
-        for n in 0..num_bidders {
+        objects_bidded.iter().enumerate().for_each(|(n, jbid_ref)| {
             // for each bid made,
             let i = bidders[n]; // bidder
             let bid_val = bids[n]; // value
-            let jbid = objects_bidded[n] as usize; // object
+            let jbid = *jbid_ref as usize; // object
             if bid_val > self.best_bids[jbid] {
                 // if beats current best bid for this object
                 if self.best_bidders[jbid] == NONE {
@@ -348,7 +348,7 @@ impl AuctionSolver {
                 self.best_bids[jbid] = bid_val;
                 self.best_bidders[jbid] = i;
             }
-        }
+        });
         trace!("best_bidders {:?}", self.best_bidders);
         trace!("best_bids {:?}", self.best_bids);
 
