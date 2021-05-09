@@ -1,11 +1,12 @@
 #![feature(array_methods, array_map, is_sorted, total_cmp)]
 use log;
 use log::trace;
-pub const NONE: u32 = u32::MAX;
 pub type Float = f64;
+pub type UInt = u32;
+pub const NONE: UInt = UInt::MAX;
 
 #[inline]
-pub fn cumulative_idxs(arr: &[u32]) -> Vec<u32> {
+pub fn cumulative_idxs(arr: &[UInt]) -> Vec<UInt> {
     // Given an ordered set of integers 0-N, returns an array of size N+1, where each element gives the index of
     //  stop of the number / start of the next
     // [0, 0, 0, 1, 1, 1, 1] -> [0, 3, 7]
@@ -17,17 +18,17 @@ pub fn cumulative_idxs(arr: &[u32]) -> Vec<u32> {
     let mut value = 0;
     for (i, arr_i_ref) in arr.iter().enumerate() {
         if *arr_i_ref > value {
-            out.push(i as u32); // set start of new value to i
+            out.push(i as UInt); // set start of new value to i
             value += 1;
         }
     }
 
-    out.push(arr.len() as u32); // add on last value's stop (one after to match convention of loop)
+    out.push(arr.len() as UInt); // add on last value's stop (one after to match convention of loop)
     out
 }
 
 #[inline]
-pub fn diff(arr: &[u32]) -> Vec<u32> {
+pub fn diff(arr: &[UInt]) -> Vec<UInt> {
     // Returns the 1D difference of a provided memory space of size N
     let mut iter = arr.iter().peekable();
     let mut out = Vec::with_capacity(arr.len() + 1);
@@ -40,8 +41,8 @@ pub fn diff(arr: &[u32]) -> Vec<u32> {
     out
 }
 
-fn push_all_left(data: &mut [u32], mapper: &mut [u32], num_ints: usize, size: usize) {
-    // Given an array of valid positive integers (size <size>) and NONEs (u32::MAX), arrange so that all valid positive integers are at the start of the array.
+fn push_all_left(data: &mut [UInt], mapper: &mut [UInt], num_ints: usize, size: usize) {
+    // Given an array of valid positive integers (size <size>) and NONEs (UInt::MAX), arrange so that all valid positive integers are at the start of the array.
     // Provided with N (number of valid positive integers) for speed increase.
     // eg [4294967295, 1, 2, 3, 4294967295, 4294967295] -> [3, 1, 2, 4294967295, 4294967295, 4294967295] (order not important).
     // Also updates mapper in tandem, a 1d array in which the ith idx gives the position of integer i in the array data.
@@ -66,7 +67,7 @@ fn push_all_left(data: &mut [u32], mapper: &mut [u32], num_ints: usize, size: us
             let i = data[right_track]; // integer taken through
             data[left_track] = i;
             data[right_track] = NONE;
-            mapper[i as usize] = left_track as u32;
+            mapper[i as usize] = left_track as UInt;
         }
 
         left_track += 1;
@@ -76,16 +77,16 @@ fn push_all_left(data: &mut [u32], mapper: &mut [u32], num_ints: usize, size: us
 #[derive(Debug)]
 pub struct AuctionSolution {
     // index i gives the object, j, owned by person i
-    pub person_to_object: Vec<u32>,
+    pub person_to_object: Vec<UInt>,
     // index j gives the person, i, who owns object j
-    pub object_to_person: Vec<u32>,
+    pub object_to_person: Vec<UInt>,
 
     pub eps: Float,
     pub nits: u32,
     pub nreductions: u32,
     pub optimal_soln_found: bool,
-    pub num_assigned: u32,
-    pub num_unassigned: u32,
+    pub num_assigned: UInt,
+    pub num_unassigned: UInt,
 }
 
 impl AuctionSolution {
@@ -144,12 +145,12 @@ impl AuctionSolution {
 /// Solver for auction problem
 /// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
 pub struct AuctionSolver {
-    num_rows: u32,
-    num_cols: u32,
+    num_rows: UInt,
+    num_cols: UInt,
     prices: Vec<Float>,
-    i_starts_stops: Vec<u32>,
-    j_counts: Vec<u32>,
-    column_indices: Vec<u32>,
+    i_starts_stops: Vec<UInt>,
+    j_counts: Vec<UInt>,
+    column_indices: Vec<UInt>,
     // memory view of all values
     values: Vec<Float>,
 
@@ -159,11 +160,11 @@ pub struct AuctionSolver {
     max_iterations: u32,
 
     best_bids: Vec<Float>,
-    best_bidders: Vec<u32>,
+    best_bidders: Vec<UInt>,
 
     // assignment storage
-    unassigned_people: Vec<u32>,
-    person_to_assignment_idx: Vec<u32>,
+    unassigned_people: Vec<UInt>,
+    person_to_assignment_idx: Vec<UInt>,
 }
 
 impl AuctionSolver {
@@ -176,10 +177,10 @@ impl AuctionSolver {
         };
 
     pub fn new(
-        num_rows: u32,
-        num_cols: u32,
-        row_indices: &[u32],
-        column_indices: Vec<u32>,
+        num_rows: UInt,
+        num_cols: UInt,
+        row_indices: &[UInt],
+        column_indices: Vec<UInt>,
         values: Vec<Float>,
     ) -> AuctionSolver {
         debug_assert!(num_rows <= num_cols);
@@ -268,11 +269,11 @@ impl AuctionSolver {
                 self.unassigned_people
                     .iter_mut()
                     .enumerate()
-                    .for_each(|(i, item_ref)| *item_ref = i as u32);
+                    .for_each(|(i, item_ref)| *item_ref = i as UInt);
                 self.person_to_assignment_idx
                     .iter_mut()
                     .enumerate()
-                    .for_each(|(i, item_ref)| *item_ref = i as u32);
+                    .for_each(|(i, item_ref)| *item_ref = i as UInt);
 
                 solution.nreductions += 1
             }
@@ -380,7 +381,7 @@ impl AuctionSolver {
 
                 // make new assignment
                 people_to_assign_ctr += 1;
-                solution.person_to_object[i as usize] = j as u32;
+                solution.person_to_object[i as usize] = j as UInt;
                 solution.object_to_person[j] = i;
 
                 // bid has been processed, reset best bids store to NONE
@@ -438,7 +439,7 @@ impl AuctionSolver {
 
 #[cfg(test)]
 mod tests {
-    use super::{cumulative_idxs, diff, push_all_left, AuctionSolver, Float, NONE};
+    use super::{cumulative_idxs, diff, push_all_left, AuctionSolver, Float, UInt, NONE};
     use env_logger;
     use log::trace;
     use rand::distributions::{Distribution, Uniform};
@@ -475,8 +476,8 @@ mod tests {
     #[test]
     fn test_sparse_solve() -> Result<(), Box<dyn std::error::Error>> {
         init();
-        const NUM_ROWS: u32 = 5;
-        const NUM_COLS: u32 = 5;
+        const NUM_ROWS: UInt = 5;
+        const NUM_COLS: UInt = 5;
         let mut row_indices = Vec::with_capacity(NUM_ROWS as usize);
         let mut column_indices = Vec::with_capacity(NUM_COLS as usize);
         let mut values = Vec::with_capacity((NUM_ROWS * NUM_COLS) as usize);

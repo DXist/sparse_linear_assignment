@@ -6,7 +6,7 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use sslap::cumulative_idxs;
-use sslap::{AuctionSolver, Float, NONE};
+use sslap::{AuctionSolver, Float, UInt, NONE};
 
 pub fn cumulative_idxs_benchmark(c: &mut Criterion) {
     c.bench_function("cum idx 7", |b| {
@@ -16,11 +16,11 @@ pub fn cumulative_idxs_benchmark(c: &mut Criterion) {
 
 fn gen_simmetric_input(
     seed: u64,
-    size: u32,
+    size: UInt,
     density: Float,
     min_value: Float,
     max_value: Float,
-) -> (Vec<u32>, Vec<u32>, Vec<Float>) {
+) -> (Vec<UInt>, Vec<UInt>, Vec<Float>) {
     let mut row_indices = Vec::with_capacity((size.pow(2) as Float * density) as usize * 2);
     let mut column_indices = Vec::with_capacity((size.pow(2) as Float * density) as usize * 2);
     let mut values = Vec::with_capacity((size.pow(2) as Float * density) as usize * 2);
@@ -28,11 +28,11 @@ fn gen_simmetric_input(
     let mut filter_rng = ChaCha8Rng::seed_from_u64(seed + 1);
 
     let between = Uniform::from(min_value..max_value);
-    let num_of_arcs_fully_dense = size.pow(2);
+    let num_of_arcs_fully_dense = (size as u32).pow(2);
     let target_elements_from_prng = ((num_of_arcs_fully_dense as Float) * density) as u32;
     let whether_to_add = Bernoulli::from_ratio(target_elements_from_prng, num_of_arcs_fully_dense)
         .expect("unexpected error");
-    let mut ensured_i_to_j = (0..size).collect::<Vec<u32>>();
+    let mut ensured_i_to_j = (0..size).collect::<Vec<UInt>>();
     ensured_i_to_j.as_mut_slice().shuffle(&mut filter_rng);
     (0..size)
         .flat_map(|i| (0..size).map(move |j| (i, j)))
@@ -68,7 +68,7 @@ fn gen_simmetric_input(
     (row_indices, column_indices, values)
 }
 
-fn bench_by_density_and_size(c: &mut Criterion, max_density_percent: u32, max_size: u32) {
+fn bench_by_density_and_size(c: &mut Criterion, max_density_percent: UInt, max_size: UInt) {
     let mut group = c.benchmark_group(format!(
         "bench_density_{}_size_{}",
         max_density_percent, max_size
@@ -97,7 +97,7 @@ fn bench_by_density_and_size(c: &mut Criterion, max_density_percent: u32, max_si
                                     solution.nits,
                                     solution.nreductions,
                                     solution.num_unassigned,
-                                    solution.num_unassigned + solution.num_assigned == size as u32
+                                    solution.num_unassigned + solution.num_assigned == size as UInt
                                 )
                             }
                         },
