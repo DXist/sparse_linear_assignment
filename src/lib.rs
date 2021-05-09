@@ -291,41 +291,44 @@ impl AuctionSolver {
 
         // BIDDING PHASE
         // each person now makes a bid:
-        for nbidder in 0..num_bidders {
-            let i = self.unassigned_people[nbidder];
-            let num_objects = self.j_counts[i as usize] as usize; // the number of objects this person is able to bid on
-            let start = self.i_starts_stops[i as usize] as usize; // in flattened index format, the starting index of this person's objects/values
-                                                                  // initially 0 object is considered the best
-            let mut jbest = self.column_indices[start];
-            let mut costbest = self.values[start];
-            // best net reword
-            let mut vbest = costbest - self.prices[jbest as usize];
-            // second best net reword
-            let mut wi = Float::NEG_INFINITY; //0.;
-                                              // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
-            for idx in 1..num_objects {
-                let glob_idx = start + idx;
-                let j = self.column_indices[glob_idx];
-                let cost = self.values[glob_idx];
-                let vi = cost - self.prices[j as usize];
-                if vi > vbest {
-                    // if best so far (or first entry)
-                    jbest = j;
-                    wi = vbest; // store current vbest as second best, wi
-                    vbest = vi;
-                    costbest = cost;
-                } else if vi > wi {
-                    wi = vi;
+        bidders
+            .iter_mut()
+            .enumerate()
+            .for_each(|(nbidder, bidder_refmut)| {
+                let i = self.unassigned_people[nbidder];
+                let num_objects = self.j_counts[i as usize] as usize; // the number of objects this person is able to bid on
+                let start = self.i_starts_stops[i as usize] as usize; // in flattened index format, the starting index of this person's objects/values
+                                                                      // initially 0 object is considered the best
+                let mut jbest = self.column_indices[start];
+                let mut costbest = self.values[start];
+                // best net reword
+                let mut vbest = costbest - self.prices[jbest as usize];
+                // second best net reword
+                let mut wi = Float::NEG_INFINITY; //0.;
+                                                  // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
+                for idx in 1..num_objects {
+                    let glob_idx = start + idx;
+                    let j = self.column_indices[glob_idx];
+                    let cost = self.values[glob_idx];
+                    let vi = cost - self.prices[j as usize];
+                    if vi > vbest {
+                        // if best so far (or first entry)
+                        jbest = j;
+                        wi = vbest; // store current vbest as second best, wi
+                        vbest = vi;
+                        costbest = cost;
+                    } else if vi > wi {
+                        wi = vi;
+                    }
                 }
-            }
 
-            let bbest = costbest - wi + solution.eps; // value of new bid
+                let bbest = costbest - wi + solution.eps; // value of new bid
 
-            // store bid & its value
-            bidders[nbidder] = i;
-            bids[nbidder] = bbest;
-            objects_bidded[nbidder] = jbest
-        }
+                // store bid & its value
+                *bidder_refmut = i;
+                bids[nbidder] = bbest;
+                objects_bidded[nbidder] = jbest
+            });
 
         let mut num_successful_bids = 0; // counter of how many succesful bids
 
