@@ -15,7 +15,11 @@ log = { version = "0.4", features = ["max_level_trace"]}
 rand = "0.8"
 rand_chacha = "0.3"
 reservoir-sampling = "0.5"
-# criterion = "0.3"
+criterion = "0.3"
+
+[lib]
+# disable libtest benchmarks
+bench = false
 
 [[bench]]
 name = "benchmark"

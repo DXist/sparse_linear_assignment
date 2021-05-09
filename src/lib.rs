@@ -1,13 +1,11 @@
 #![feature(array_methods, array_map, is_sorted, total_cmp)]
+use log;
 use log::trace;
-use log::LevelFilter;
-use log::STATIC_MAX_LEVEL;
-
-const NONE: u32 = u32::MAX;
-const NONE_F32: f32 = f32::NEG_INFINITY;
+pub const NONE: u32 = u32::MAX;
+pub type Float = f64;
 
 #[inline]
-fn cumulative_idxs(arr: &[u32]) -> Vec<u32> {
+pub fn cumulative_idxs(arr: &[u32]) -> Vec<u32> {
     // Given an ordered set of integers 0-N, returns an array of size N+1, where each element gives the index of
     //  stop of the number / start of the next
     // [0, 0, 0, 1, 1, 1, 1] -> [0, 3, 7]
@@ -28,7 +26,8 @@ fn cumulative_idxs(arr: &[u32]) -> Vec<u32> {
     out
 }
 
-fn diff(arr: &[u32]) -> Vec<u32> {
+#[inline]
+pub fn diff(arr: &[u32]) -> Vec<u32> {
     // Returns the 1D difference of a provided memory space of size N
     let mut iter = arr.iter().peekable();
     let mut out = Vec::with_capacity(arr.len() + 1);
@@ -75,13 +74,13 @@ fn push_all_left(data: &mut [u32], mapper: &mut [u32], num_ints: usize, size: us
 }
 
 #[derive(Debug)]
-struct AuctionSolution {
+pub struct AuctionSolution {
     // index i gives the object, j, owned by person i
-    person_to_object: Vec<u32>,
+    pub person_to_object: Vec<u32>,
     // index j gives the person, i, who owns object j
-    object_to_person: Vec<u32>,
+    pub object_to_person: Vec<u32>,
 
-    eps: f32,
+    pub eps: Float,
     pub nits: u32,
     pub nreductions: u32,
     pub optimal_soln_found: bool,
@@ -94,16 +93,14 @@ impl AuctionSolution {
     ///
     /// As eps-complementary slackness is preserved through each iteration, and we start with an empty set,
     /// it is true that any solution satisfies eps-complementary slackness. Will add a check to be sure
-    fn is_optimal(&self, solver: &AuctionSolver) -> bool {
+    pub fn is_optimal(&self, solver: &AuctionSolver) -> bool {
         if self.num_unassigned > 0 {
             false
         } else {
             self.ece_satisfied(solver)
         }
     }
-
-    /// tolerance to deal with floating point precision for eCE, due to eps being stored as float 32
-    const TOLERANCE: f32 = 1e-7;
+    const TOLERATION: Float = if Float::DIGITS == 7 { 1.0e-7 } else { 1.0e-15 };
 
     /// Returns True if eps-complementary slackness condition is satisfied
     /// e-CE: for k (all valid j for a given i), max (a_ik - p_k) - eps <= a_ij - p_j
@@ -114,7 +111,7 @@ impl AuctionSolution {
             let start = solver.i_starts_stops[i as usize]; // in flattened index format, the starting index of this person's objects/values
             let j = self.person_to_object[i as usize]; // chosen object
 
-            let mut choice_cost = f32::NAN;
+            let mut choice_cost = Float::NEG_INFINITY;
             // first, get cost of choice j
             for idx in 0..num_objects {
                 let glob_idx = start + idx;
@@ -126,7 +123,8 @@ impl AuctionSolution {
 
             //  k are all possible biddable objects.
             // Go through each, asserting that (a_ij - p_j) + tol >= max(a_ik - p_k) - eps for all k
-            let lhs = choice_cost - solver.prices[j as usize] + AuctionSolution::TOLERANCE; // left hand side of inequality
+            // tolerance to deal with floating point precision for eCE, due to eps being stored as float 32
+            let lhs = choice_cost - solver.prices[j as usize] + AuctionSolution::TOLERATION; // left hand side of inequality
 
             for idx in 0..num_objects {
                 let glob_idx = start + idx;
@@ -145,22 +143,22 @@ impl AuctionSolution {
 
 /// Solver for auction problem
 /// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
-struct AuctionSolver {
+pub struct AuctionSolver {
     num_rows: u32,
     num_cols: u32,
-    prices: Vec<f32>,
+    prices: Vec<Float>,
     i_starts_stops: Vec<u32>,
     j_counts: Vec<u32>,
     column_indices: Vec<u32>,
     // memory view of all values
-    values: Vec<f32>,
+    values: Vec<Float>,
 
-    start_eps: f32,
-    target_eps: f32,
+    start_eps: Float,
+    target_eps: Float,
 
     max_iterations: u32,
 
-    best_bids: Vec<f32>,
+    best_bids: Vec<Float>,
     best_bidders: Vec<u32>,
 
     // assignment storage
@@ -169,25 +167,23 @@ struct AuctionSolver {
 }
 
 impl AuctionSolver {
-    pub const REDUCTION_FACTOR: f32 = 0.15;
-    pub const MAX_ITERATIONS: u32 = if STATIC_MAX_LEVEL as usize == LevelFilter::Trace as usize {
-        30
-    } else {
-        10u32.pow(6)
-    };
+    const REDUCTION_FACTOR: Float = 0.15;
+    const MAX_ITERATIONS: u32 =
+        if log::STATIC_MAX_LEVEL as usize == log::LevelFilter::Trace as usize {
+            30
+        } else {
+            10u32.pow(6)
+        };
 
     pub fn new(
         num_rows: u32,
         num_cols: u32,
         row_indices: &[u32],
         column_indices: Vec<u32>,
-        values: Vec<f32>,
+        values: Vec<Float>,
     ) -> AuctionSolver {
         debug_assert!(num_rows <= num_cols);
         debug_assert!(row_indices.is_sorted(), "expecting sorted row indices");
-        let prices = vec![0.; num_cols as usize];
-        let i_starts_stops = cumulative_idxs(row_indices);
-        let j_counts = diff(&i_starts_stops);
         // Calculate optimum initial eps and target eps
         // C = max |aij| for all i, j in A(i)
         let c = values
@@ -195,9 +191,13 @@ impl AuctionSolver {
             .max_by(|x, y| x.abs().total_cmp(&y.abs()))
             .expect("values should not be empty");
 
+        let prices = vec![0.; num_cols as usize];
+        let i_starts_stops = cumulative_idxs(row_indices);
+        let j_counts = diff(&i_starts_stops);
+
         // choose eps values
         let start_eps = c / 2.0;
-        let target_eps = 1.0 / num_rows as f32;
+        let target_eps = 1.0 / num_rows as Float;
 
         AuctionSolver {
             num_rows,
@@ -212,7 +212,7 @@ impl AuctionSolver {
 
             max_iterations: AuctionSolver::MAX_ITERATIONS,
 
-            best_bids: vec![NONE_F32; num_cols as usize],
+            best_bids: vec![Float::NEG_INFINITY; num_cols as usize],
             best_bidders: vec![NONE; num_cols as usize],
 
             unassigned_people: (0..num_rows).collect(),
@@ -220,6 +220,7 @@ impl AuctionSolver {
         }
     }
 
+    #[inline]
     pub fn solve(&mut self) -> AuctionSolution {
         let mut solution = AuctionSolution {
             person_to_object: vec![NONE; self.num_rows as usize],
@@ -233,7 +234,7 @@ impl AuctionSolver {
         };
         loop {
             self.bid_and_assign(&mut solution);
-            trace!("OBJECTIVE: {}", self.get_objective(&solution));
+            trace!("OBJECTIVE: {:?}", self.get_objective(&solution));
             solution.nits += 1;
 
             let is_optimal = (solution.num_unassigned == 0) && solution.is_optimal(&self);
@@ -286,7 +287,7 @@ impl AuctionSolver {
         let num_bidders = solution.num_unassigned as usize;
         let mut bidders = vec![NONE; num_bidders];
         let mut objects_bidded = vec![NONE; num_bidders];
-        let mut bids = vec![f32::NEG_INFINITY; num_bidders];
+        let mut bids = vec![Float::NEG_INFINITY; num_bidders];
 
         // BIDDING PHASE
         // each person now makes a bid:
@@ -300,8 +301,8 @@ impl AuctionSolver {
             // best net reword
             let mut vbest = costbest - self.prices[jbest as usize];
             // second best net reword
-            let mut wi = f32::NEG_INFINITY; //0.;
-                                            // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
+            let mut wi = Float::NEG_INFINITY; //0.;
+                                              // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
             for idx in 1..num_objects {
                 let glob_idx = start + idx;
                 let j = self.column_indices[glob_idx];
@@ -381,7 +382,7 @@ impl AuctionSolver {
 
                 // bid has been processed, reset best bids store to NONE
                 self.best_bidders[j] = NONE;
-                self.best_bids[j] = NONE_F32;
+                self.best_bids[j] = Float::NEG_INFINITY;
 
                 // keep track of number of bids. Stop early if reached all bids
                 bid_ctr += 1;
@@ -405,7 +406,7 @@ impl AuctionSolver {
         trace!("prices: {:?}", self.prices);
     }
     /// Returns current objective value of assignments
-    fn get_objective(&self, solution: &AuctionSolution) -> f32 {
+    fn get_objective(&self, solution: &AuctionSolution) -> Float {
         let mut obj = 0.;
         for i in 0..self.num_rows {
             // due to the way data is stored, need to go do some searching to find the corresponding value
@@ -434,10 +435,9 @@ impl AuctionSolver {
 
 #[cfg(test)]
 mod tests {
-    use super::{cumulative_idxs, diff, push_all_left, AuctionSolver, NONE};
+    use super::{cumulative_idxs, diff, push_all_left, AuctionSolver, Float, NONE};
     use env_logger;
     use log::trace;
-    use log::STATIC_MAX_LEVEL;
     use rand::distributions::{Distribution, Uniform};
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
@@ -480,7 +480,7 @@ mod tests {
         let mut val_rng = ChaCha8Rng::seed_from_u64(1);
         let mut filter_rng = ChaCha8Rng::seed_from_u64(2);
 
-        const MAX_VALUE: f32 = 10.0;
+        const MAX_VALUE: Float = 10.0;
         let between = Uniform::from(0.0..MAX_VALUE);
         const ARCS_PER_PERSON: usize = 2;
 
@@ -508,6 +508,8 @@ mod tests {
             values,
         );
         let solution = solver.solve();
+        assert!(solution.optimal_soln_found);
+        assert!(solution.num_unassigned == 0);
         trace!("{:?}", solution,);
         Ok(())
     }
