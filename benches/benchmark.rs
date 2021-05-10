@@ -1,18 +1,13 @@
 use criterion::BenchmarkId;
 use criterion::Throughput;
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, SamplingMode};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion, SamplingMode};
 use rand::distributions::{Bernoulli, Distribution, Uniform};
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use sslap::cumulative_idxs;
-use sslap::{AuctionSolver, Float, UInt, NONE};
+use sslap::{AuctionSolver, Float};
 
-pub fn cumulative_idxs_benchmark(c: &mut Criterion) {
-    c.bench_function("cum idx 7", |b| {
-        b.iter(|| cumulative_idxs(black_box(&[0, 0, 0, 1, 1, 1, 1])))
-    });
-}
+type UInt = u16;
 
 fn gen_simmetric_input(
     seed: u64,
@@ -39,8 +34,8 @@ fn gen_simmetric_input(
         .for_each(|(i, j)| {
             if whether_to_add.sample(&mut filter_rng) || (ensured_i_to_j[i as usize] == j) {
                 let v = between.sample(&mut val_rng);
-                if ensured_i_to_j[i as usize] != NONE {
-                    ensured_i_to_j[i as usize] = NONE;
+                if ensured_i_to_j[i as usize] != UInt::MAX {
+                    ensured_i_to_j[i as usize] = UInt::MAX;
                 }
                 row_indices.push(i);
                 column_indices.push(j);
@@ -68,7 +63,7 @@ fn gen_simmetric_input(
     (row_indices, column_indices, values)
 }
 
-fn bench_by_density_and_size(c: &mut Criterion, max_density_percent: UInt, max_size: UInt) {
+fn bench_simmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt, max_size: UInt) {
     let mut group = c.benchmark_group(format!(
         "bench_density_{}_size_{}",
         max_density_percent, max_size
@@ -110,9 +105,9 @@ fn bench_by_density_and_size(c: &mut Criterion, max_density_percent: UInt, max_s
     group.finish();
 }
 
-fn bench_density_1_size_10000(c: &mut Criterion) {
-    bench_by_density_and_size(c, 1, 10000)
+fn bench_simmetric_density_1_size_10000(c: &mut Criterion) {
+    bench_simmetric_density_and_size(c, 1, 10000)
 }
 
-criterion_group!(benches, bench_density_1_size_10000);
+criterion_group!(benches, bench_simmetric_density_1_size_10000);
 criterion_main!(benches);
