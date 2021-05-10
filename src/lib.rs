@@ -124,6 +124,7 @@ where
         + Display
         + Debug
         + AsPrimitive<usize>
+        + AsPrimitive<T>
         + AsPrimitive<Float>
         + FromPrimitive
         + NumAssign,
@@ -158,6 +159,7 @@ where
         + Display
         + Debug
         + AsPrimitive<usize>
+        + AsPrimitive<T>
         + AsPrimitive<Float>
         + FromPrimitive
         + NumAssign,
@@ -431,11 +433,11 @@ where
                 continue;
             }
 
-            let num_objects = self.j_counts[i].as_();
-            let start: usize = self.i_starts_stops[i].as_();
+            let num_objects = self.j_counts[i];
+            let start = self.i_starts_stops[i];
 
-            for idx in 0..num_objects {
-                let glob_idx = start + idx;
+            for idx in num_iter::range(I::zero(), num_objects) {
+                let glob_idx = (start + idx.as_()).as_();
                 let l = self.column_indices[glob_idx];
                 if l == j {
                     obj += self.values[glob_idx];
@@ -456,15 +458,15 @@ where
     /// e-CE: for k (all valid j for a given i), max (a_ik - p_k) - eps <= a_ij - p_j
     fn ece_satisfied(&self, person_to_object: &[I]) -> bool {
         for i in 0..self.num_rows.as_() {
-            let num_objects: usize = self.j_counts[i].as_(); // the number of objects this person is able to bid on
+            let num_objects = self.j_counts[i]; // the number of objects this person is able to bid on
 
-            let start: usize = self.i_starts_stops[i].as_(); // in flattened index format, the starting index of this person's objects/values
+            let start = self.i_starts_stops[i]; // in flattened index format, the starting index of this person's objects/values
             let j = person_to_object[i]; // chosen object
 
             let mut choice_cost = Float::NEG_INFINITY;
             // first, get cost of choice j
-            for idx in 0..num_objects {
-                let glob_idx = start + idx;
+            for idx in num_iter::range(I::zero(), num_objects) {
+                let glob_idx: usize = (start + idx.as_()).as_();
                 let l: I = self.column_indices[glob_idx];
                 if l == j {
                     choice_cost = self.values[glob_idx];
@@ -477,8 +479,8 @@ where
             let j_usize: usize = j.as_();
             let lhs: Float = choice_cost - self.prices[j_usize] + Self::TOLERATION; // left hand side of inequality
 
-            for idx in 0..num_objects {
-                let glob_idx = start + idx;
+            for idx in num_iter::range(I::zero(), num_objects) {
+                let glob_idx: usize = (start + idx.as_()).as_();
                 let k: usize = self.column_indices[glob_idx].as_();
                 let cost: Float = self.values[glob_idx];
                 if lhs < cost - self.prices[k] - self.target_eps {
