@@ -85,7 +85,8 @@ fn bench_simmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt
                         || input.clone(),
                         |(size, r, c, v)| {
                             let solution =
-                                AuctionSolver::new(size, size, r.as_slice(), c, v).solve();
+                                AuctionSolver::<_, u32>::new(size, size, r.as_slice(), c, v)
+                                    .solve();
                             if !solution.optimal_soln_found {
                                 println!(
                                     "not optimal: nits {}, nreductions {}, num_unassigned {}, {}",

@@ -2,46 +2,51 @@
 use log;
 use log::trace;
 use num_iter;
-use num_traits::{AsPrimitive, FromPrimitive, NumAssign, PrimInt, Unsigned};
+use num_traits::{AsPrimitive, FromPrimitive, NumAssign, NumCast, PrimInt, ToPrimitive, Unsigned};
 use std::fmt::{Debug, Display};
 pub type Float = f64;
 pub type IBounds = u32;
 // pub const NONE: I = I::MAX;
 
 #[inline]
-pub fn cumulative_idxs<I>(arr: &[I]) -> Vec<I>
+pub fn cumulative_idxs<I, T>(arr: &[I]) -> Vec<T>
 where
-    I: PrimInt + Unsigned + FromPrimitive + NumAssign,
+    I: PrimInt + Unsigned + NumAssign,
+    T: PrimInt + Unsigned + ToPrimitive + FromPrimitive,
 {
     // Given an ordered set of integers 0-N, returns an array of size N+1, where each element gives the index of
     //  stop of the number / start of the next
     // [0, 0, 0, 1, 1, 1, 1] -> [0, 3, 7]
-    let mut out: Vec<I> = Vec::with_capacity(arr.len() + 1);
-    out.push(I::zero());
+    let mut out: Vec<T> = Vec::with_capacity(arr.len() + 1);
+    out.push(T::zero());
     if arr.len() == 0 {
         return out;
     }
     let mut value = I::zero();
     for (i, arr_i_ref) in arr.iter().enumerate() {
         if *arr_i_ref > value {
-            out.push(I::from_usize(i).unwrap()); // set start of new value to i
+            out.push(T::from_usize(i).unwrap()); // set start of new value to i
             value += I::one();
         }
     }
 
-    out.push(I::from_usize(arr.len()).unwrap()); // add on last value's stop (one after to match convention of loop)
+    out.push(T::from_usize(arr.len()).unwrap()); // add on last value's stop (one after to match convention of loop)
     out
 }
 
 #[inline]
-pub fn diff<I: PrimInt + Unsigned>(arr: &[I]) -> Vec<I> {
+pub fn diff<I, T>(arr: &[I]) -> Vec<T>
+where
+    I: PrimInt + Unsigned + NumCast,
+    T: PrimInt + Unsigned + ToPrimitive,
+{
     // Returns the 1D difference of a provided memory space of size N
     let mut iter = arr.iter().peekable();
     let mut out = Vec::with_capacity(arr.len() + 1);
 
     while let Some(item_ref) = iter.next() {
         if let Some(&next_item_ref) = iter.peek() {
-            out.push(*next_item_ref - *item_ref);
+            out.push(T::from(*next_item_ref - *item_ref).unwrap());
         }
     }
     out
@@ -110,74 +115,9 @@ where
     pub num_unassigned: I,
 }
 
-impl<I> AuctionSolution<I>
-where
-    I: PrimInt
-        + Unsigned
-        + Display
-        + Debug
-        + AsPrimitive<usize>
-        + AsPrimitive<Float>
-        + FromPrimitive
-        + NumAssign,
-{
-    /// Checks if current solution is a complete solution that satisfies eps-complementary slackness.
-    ///
-    /// As eps-complementary slackness is preserved through each iteration, and we start with an empty set,
-    /// it is true that any solution satisfies eps-complementary slackness. Will add a check to be sure
-    pub fn is_optimal(&self, solver: &AuctionSolver<I>) -> bool {
-        if self.num_unassigned > I::zero() {
-            false
-        } else {
-            self.ece_satisfied(solver)
-        }
-    }
-    const TOLERATION: Float = if Float::DIGITS == 7 { 1.0e-7 } else { 1.0e-15 };
-
-    /// Returns True if eps-complementary slackness condition is satisfied
-    /// e-CE: for k (all valid j for a given i), max (a_ik - p_k) - eps <= a_ij - p_j
-    fn ece_satisfied(&self, solver: &AuctionSolver<I>) -> bool {
-        for i in 0..solver.num_rows.as_() {
-            let num_objects = solver.j_counts[i]; // the number of objects this person is able to bid on
-
-            let start = solver.i_starts_stops[i]; // in flattened index format, the starting index of this person's objects/values
-            let j = self.person_to_object[i]; // chosen object
-
-            let mut choice_cost = Float::NEG_INFINITY;
-            // first, get cost of choice j
-            for idx in num_iter::range(I::zero(), num_objects) {
-                let glob_idx: usize = (start + idx).as_();
-                let l: I = solver.column_indices[glob_idx];
-                if l == j {
-                    choice_cost = solver.values[glob_idx];
-                }
-            }
-
-            //  k are all possible biddable objects.
-            // Go through each, asserting that (a_ij - p_j) + tol >= max(a_ik - p_k) - eps for all k
-            // tolerance to deal with floating point precision for eCE, due to eps being stored as float 32
-            let j_usize: usize = j.as_();
-            let lhs: Float =
-                choice_cost - solver.prices[j_usize] + AuctionSolution::<I>::TOLERATION; // left hand side of inequality
-
-            for idx in num_iter::range(I::zero(), num_objects) {
-                let glob_idx: usize = (start + idx).as_();
-                let k: usize = solver.column_indices[glob_idx].as_();
-                let cost: Float = solver.values[glob_idx];
-                if lhs < cost - solver.prices[k] - solver.target_eps {
-                    trace!("ECE CONDITION is not met");
-                    return false; // The eCE condition is not met.
-                }
-            }
-        }
-        trace!("ECE CONDITION met");
-        true
-    }
-}
-
 /// Solver for auction problem
 /// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
-pub struct AuctionSolver<I>
+pub struct AuctionSolver<I, T>
 where
     I: PrimInt
         + Unsigned
@@ -187,11 +127,12 @@ where
         + AsPrimitive<Float>
         + FromPrimitive
         + NumAssign,
+    T: PrimInt + Unsigned + Display + Debug + AsPrimitive<usize> + FromPrimitive + NumAssign,
 {
     num_rows: I,
     num_cols: I,
     prices: Vec<Float>,
-    i_starts_stops: Vec<I>,
+    i_starts_stops: Vec<T>,
     j_counts: Vec<I>,
     column_indices: Vec<I>,
     // memory view of all values
@@ -210,7 +151,7 @@ where
     person_to_assignment_idx: Vec<I>,
 }
 
-impl<I> AuctionSolver<I>
+impl<I, T> AuctionSolver<I, T>
 where
     I: PrimInt
         + Unsigned
@@ -220,6 +161,7 @@ where
         + AsPrimitive<Float>
         + FromPrimitive
         + NumAssign,
+    T: PrimInt + Unsigned + Display + Debug + AsPrimitive<usize> + FromPrimitive + NumAssign,
 {
     const REDUCTION_FACTOR: Float = 0.15;
     const MAX_ITERATIONS: u32 =
@@ -235,8 +177,12 @@ where
         row_indices: &[I],
         column_indices: Vec<I>,
         values: Vec<Float>,
-    ) -> AuctionSolver<I> {
+    ) -> AuctionSolver<I, T> {
         debug_assert!(num_rows <= num_cols);
+        debug_assert!(
+            row_indices.len() == column_indices.len() && column_indices.len() == values.len()
+        );
+        debug_assert!(row_indices.len() < T::max_value().as_());
         debug_assert!(row_indices.is_sorted(), "expecting sorted row indices");
         // Calculate optimum initial eps and target eps
         // C = max |aij| for all i, j in A(i)
@@ -254,7 +200,7 @@ where
         let float_num_rows: Float = num_rows.as_();
         let target_eps = 1.0 / float_num_rows;
 
-        AuctionSolver::<I> {
+        AuctionSolver::<I, T> {
             num_rows,
             num_cols,
             i_starts_stops,
@@ -265,7 +211,7 @@ where
             start_eps,
             target_eps,
 
-            max_iterations: AuctionSolver::<I>::MAX_ITERATIONS,
+            max_iterations: AuctionSolver::<I, T>::MAX_ITERATIONS,
 
             best_bids: vec![Float::NEG_INFINITY; num_cols.as_()],
             best_bidders: vec![I::max_value(); num_cols.as_()],
@@ -292,7 +238,8 @@ where
             trace!("OBJECTIVE: {:?}", self.get_objective(&solution));
             solution.nits += 1;
 
-            let is_optimal = (solution.num_unassigned == I::zero()) && solution.is_optimal(&self);
+            let is_optimal = (solution.num_unassigned == I::zero())
+                && self.ece_satisfied(solution.person_to_object.as_slice());
             if is_optimal {
                 solution.optimal_soln_found = true;
                 break;
@@ -307,7 +254,7 @@ where
                     break;
                 }
 
-                solution.eps *= AuctionSolver::<I>::REDUCTION_FACTOR;
+                solution.eps *= AuctionSolver::<I, T>::REDUCTION_FACTOR;
                 trace!("REDUCTION: eps {}", solution.eps);
 
                 // reset all trackers of people and objects
@@ -354,7 +301,7 @@ where
                 let i_usize: usize = i.as_();
                 let num_objects_i: I = self.j_counts[i_usize];
                 let num_objects = num_objects_i.as_(); // the number of objects this person is able to bid on
-                let start_i: I = self.i_starts_stops[i_usize];
+                let start_i: T = self.i_starts_stops[i_usize];
                 let start: usize = start_i.as_(); // in flattened index format, the starting index of this person's objects/values
                                                   // initially 0 object is considered the best
                 let mut jbest: I = self.column_indices[start];
@@ -484,11 +431,11 @@ where
                 continue;
             }
 
-            let num_objects = self.j_counts[i];
-            let start: I = self.i_starts_stops[i];
+            let num_objects = self.j_counts[i].as_();
+            let start: usize = self.i_starts_stops[i].as_();
 
-            for idx in num_iter::range(I::zero(), num_objects) {
-                let glob_idx: usize = (start + idx).as_();
+            for idx in 0..num_objects {
+                let glob_idx = start + idx;
                 let l = self.column_indices[glob_idx];
                 if l == j {
                     obj += self.values[glob_idx];
@@ -497,6 +444,51 @@ where
         }
 
         return obj;
+    }
+
+    const TOLERATION: Float = if Float::DIGITS == 6 { 1.0e-7 } else { 1.0e-15 };
+
+    /// Checks if current solution is a complete solution that satisfies eps-complementary slackness.
+    ///
+    /// As eps-complementary slackness is preserved through each iteration, and we start with an empty set,
+    /// it is true that any solution satisfies eps-complementary slackness. Will add a check to be sure
+    /// Returns True if eps-complementary slackness condition is satisfied
+    /// e-CE: for k (all valid j for a given i), max (a_ik - p_k) - eps <= a_ij - p_j
+    fn ece_satisfied(&self, person_to_object: &[I]) -> bool {
+        for i in 0..self.num_rows.as_() {
+            let num_objects: usize = self.j_counts[i].as_(); // the number of objects this person is able to bid on
+
+            let start: usize = self.i_starts_stops[i].as_(); // in flattened index format, the starting index of this person's objects/values
+            let j = person_to_object[i]; // chosen object
+
+            let mut choice_cost = Float::NEG_INFINITY;
+            // first, get cost of choice j
+            for idx in 0..num_objects {
+                let glob_idx = start + idx;
+                let l: I = self.column_indices[glob_idx];
+                if l == j {
+                    choice_cost = self.values[glob_idx];
+                }
+            }
+
+            //  k are all possible biddable objects.
+            // Go through each, asserting that (a_ij - p_j) + tol >= max(a_ik - p_k) - eps for all k
+            // tolerance to deal with floating point precision for eCE, due to eps being stored as float 32
+            let j_usize: usize = j.as_();
+            let lhs: Float = choice_cost - self.prices[j_usize] + Self::TOLERATION; // left hand side of inequality
+
+            for idx in 0..num_objects {
+                let glob_idx = start + idx;
+                let k: usize = self.column_indices[glob_idx].as_();
+                let cost: Float = self.values[glob_idx];
+                if lhs < cost - self.prices[k] - self.target_eps {
+                    trace!("ECE CONDITION is not met");
+                    return false; // The eCE condition is not met.
+                }
+            }
+        }
+        trace!("ECE CONDITION met");
+        true
     }
 }
 
@@ -513,14 +505,14 @@ mod tests {
     #[test]
     fn test_cumulative_idx() {
         let arr = [0, 0, 0, 1, 1, 1, 1];
-        let res = cumulative_idxs::<u16>(&arr);
+        let res = cumulative_idxs::<u16, u16>(&arr);
         assert_eq!(res, [0, 3, 7]);
     }
 
     #[test]
     fn test_diff() {
         let arr = [0, 3, 7];
-        let res = diff::<u16>(&arr);
+        let res = diff::<u16, u16>(&arr);
         assert_eq!(res, [3, 4]);
     }
 
@@ -568,7 +560,7 @@ mod tests {
                 trace!("({} -> {:?}: {:?})", i, j_samples, j_values);
             });
 
-        let mut solver = AuctionSolver::new(
+        let mut solver = AuctionSolver::<_, u16>::new(
             NUM_ROWS,
             NUM_COLS,
             row_indices.as_slice(),
