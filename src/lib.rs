@@ -52,41 +52,42 @@ where
     out
 }
 
-fn push_all_left<I: PrimInt + Unsigned + AsPrimitive<usize> + FromPrimitive>(
-    data: &mut [I],
-    mapper: &mut [I],
-    num_ints: usize,
-    size: usize,
-) {
+fn push_all_left<I>(data: &mut [I], mapper: &mut [I], num_ints: I, size: I)
+where
+    I: PrimInt + Unsigned + AsPrimitive<usize> + FromPrimitive + NumAssign,
+{
     // Given an array of valid positive integers (size <size>) and NONEs (I::MAX), arrange so that all valid positive integers are at the start of the array.
     // Provided with N (number of valid positive integers) for speed increase.
     // eg [4294967295, 1, 2, 3, 4294967295, 4294967295] -> [3, 1, 2, 4294967295, 4294967295, 4294967295] (order not important).
     // Also updates mapper in tandem, a 1d array in which the ith idx gives the position of integer i in the array data.
     // All modifications are inplace.
 
-    if num_ints == 0 {
+    if num_ints.is_zero() {
         return;
     }
 
-    let mut left_track = 0; // cursor on left hand side of partition
+    let mut left_track = I::zero(); // cursor on left hand side of partition
     let mut right_track = num_ints; // cursor on right hand side of partition
+
     while left_track < num_ints {
         // keep going until found all N components
-        if data[left_track] == I::max_value() {
+        let left_track_usize = left_track.as_();
+        if data[left_track_usize] == I::max_value() {
             // if empty space
             // move through right track until hit a valid positive integer (or the end of the array)
-            while data[right_track] == I::max_value() && right_track < size {
-                right_track += 1;
+            while data[right_track.as_()] == I::max_value() && right_track < size {
+                right_track += I::one();
             }
 
+            let right_track_usize = right_track.as_();
             // swap two elements
-            let i = data[right_track]; // integer taken through
-            data[left_track] = i;
-            data[right_track] = I::max_value();
-            mapper[i.as_()] = I::from_usize(left_track).unwrap();
+            let i = data[right_track_usize]; // integer taken through
+            data[left_track_usize] = i;
+            data[right_track_usize] = I::max_value();
+            mapper[i.as_()] = left_track;
         }
 
-        left_track += 1;
+        left_track += I::one();
     }
 }
 
@@ -184,7 +185,7 @@ where
         debug_assert!(
             row_indices.len() == column_indices.len() && column_indices.len() == values.len()
         );
-        debug_assert!(row_indices.len() < T::max_value().as_());
+        assert!(row_indices.len() < T::max_value().as_());
         debug_assert!(row_indices.is_sorted(), "expecting sorted row indices");
         // Calculate optimum initial eps and target eps
         // C = max |aij| for all i, j in A(i)
@@ -367,15 +368,16 @@ where
         let mut people_to_assign_ctr = I::zero(); // counter of how many people have been assigned
         let mut bid_ctr = 0;
 
-        for j in 0..self.num_cols.as_() {
-            let i = self.best_bidders[j];
+        for j in num_iter::range(I::zero(), self.num_cols) {
+            let j_usize: usize = j.as_();
+            let i = self.best_bidders[j_usize];
             if i != I::max_value() {
-                self.prices[j] = self.best_bids[j];
+                self.prices[j_usize] = self.best_bids[j_usize];
                 let i_usize: usize = i.as_();
                 let assignment_idx: usize = self.person_to_assignment_idx[i_usize].as_();
 
                 // unassign previous i (if any)
-                let prev_i = solution.object_to_person[j];
+                let prev_i = solution.object_to_person[j_usize];
                 if prev_i != I::max_value() {
                     people_to_unassign_ctr += I::one();
                     let prev_i_usize: usize = prev_i.as_();
@@ -393,12 +395,12 @@ where
 
                 // make new assignment
                 people_to_assign_ctr += I::one();
-                solution.person_to_object[i_usize] = I::from_usize(j).unwrap();
-                solution.object_to_person[j] = i;
+                solution.person_to_object[i_usize] = j;
+                solution.object_to_person[j_usize] = i;
 
                 // bid has been processed, reset best bids store to NONE
-                self.best_bidders[j] = I::max_value();
-                self.best_bids[j] = Float::NEG_INFINITY;
+                self.best_bidders[j_usize] = I::max_value();
+                self.best_bids[j_usize] = Float::NEG_INFINITY;
 
                 // keep track of number of bids. Stop early if reached all bids
                 bid_ctr += 1;
@@ -413,8 +415,8 @@ where
         push_all_left(
             &mut self.unassigned_people,
             &mut self.person_to_assignment_idx,
-            solution.num_unassigned.as_(),
-            self.num_cols.as_(),
+            solution.num_unassigned,
+            self.num_cols,
         );
 
         trace!("person_to_object: {:?}", solution.person_to_object);
@@ -424,18 +426,18 @@ where
     /// Returns current objective value of assignments
     fn get_objective(&self, solution: &AuctionSolution<I>) -> Float {
         let mut obj = 0.;
-        for i in 0..self.num_rows.as_() {
+        for i in num_iter::range(I::zero(), self.num_rows) {
             // due to the way data is stored, need to go do some searching to find the corresponding value
             // to assignment i -> j
-            let j: I = solution.person_to_object[i]; // chosen j
+            let i_usize: usize = i.as_();
+            let j: I = solution.person_to_object[i_usize]; // chosen j
             if j == I::max_value() {
                 // skip any unassigned
                 continue;
             }
 
-            let num_objects = self.j_counts[i];
-            let start = self.i_starts_stops[i];
-
+            let num_objects = self.j_counts[i_usize];
+            let start: T = self.i_starts_stops[i_usize];
             for idx in num_iter::range(I::zero(), num_objects) {
                 let glob_idx = (start + idx.as_()).as_();
                 let l = self.column_indices[glob_idx];
@@ -457,11 +459,12 @@ where
     /// Returns True if eps-complementary slackness condition is satisfied
     /// e-CE: for k (all valid j for a given i), max (a_ik - p_k) - eps <= a_ij - p_j
     fn ece_satisfied(&self, person_to_object: &[I]) -> bool {
-        for i in 0..self.num_rows.as_() {
-            let num_objects = self.j_counts[i]; // the number of objects this person is able to bid on
+        for i in num_iter::range(I::zero(), self.num_rows) {
+            let i_usize: usize = i.as_();
+            let num_objects = self.j_counts[i_usize]; // the number of objects this person is able to bid on
 
-            let start = self.i_starts_stops[i]; // in flattened index format, the starting index of this person's objects/values
-            let j = person_to_object[i]; // chosen object
+            let start = self.i_starts_stops[i_usize]; // in flattened index format, the starting index of this person's objects/values
+            let j = person_to_object[i_usize]; // chosen object
 
             let mut choice_cost = Float::NEG_INFINITY;
             // first, get cost of choice j

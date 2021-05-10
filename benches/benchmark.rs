@@ -7,7 +7,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use sslap::{AuctionSolver, Float};
 
-type UInt = u16;
+type UInt = u32;
 
 fn gen_simmetric_input(
     seed: u64,
