@@ -124,8 +124,9 @@ fn bench_symmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt
                     b.iter_batched(
                         || input.clone(),
                         |(size, r, c, v)| {
-                            let solution =
-                                AuctionSolver::new(size, size, r.as_slice(), c, v).solve();
+                            let solution = AuctionSolver::new(size, size, r.as_slice(), c, v)
+                                .unwrap()
+                                .solve();
                             if !solution.optimal_soln_found {
                                 println!(
                                     "not optimal: nits {}, nreductions {}, num_unassigned {}, {}",
@@ -193,6 +194,7 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
                                 c,
                                 v,
                             )
+                            .unwrap()
                             .solve();
                             if !solution.optimal_soln_found {
                                 println!(

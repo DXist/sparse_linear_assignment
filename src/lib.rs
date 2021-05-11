@@ -1,4 +1,6 @@
 #![feature(array_methods, array_map, is_sorted, total_cmp)]
+use anyhow;
+use anyhow::{anyhow as anyhow_error, ensure, Result};
 use log;
 use log::trace;
 use num_iter;
@@ -7,7 +9,7 @@ use std::fmt::{Debug, Display};
 pub type Float = f64;
 
 #[inline]
-pub fn cumulative_idxs<I>(arr: &[I]) -> Vec<I>
+pub fn cumulative_idxs<I>(arr: &[I]) -> Result<Vec<I>, anyhow::Error>
 where
     I: PrimInt + Unsigned + NumAssign + FromPrimitive,
 {
@@ -17,10 +19,11 @@ where
     let mut out: Vec<I> = Vec::with_capacity(arr.len() + 1);
     out.push(I::zero());
     if arr.len() == 0 {
-        return out;
+        return Ok(out);
     }
     let mut value = I::zero();
-    let arr_len = I::from_usize(arr.len()).unwrap();
+    let arr_len = I::from_usize(arr.len())
+        .ok_or_else(|| anyhow_error!("array is longer then max value of type"))?;
     for (i, arr_i_ref) in num_iter::range(I::zero(), arr_len).zip(arr.iter()) {
         if *arr_i_ref > value {
             out.push(i); // set start of new value to i
@@ -29,7 +32,7 @@ where
     }
 
     out.push(arr_len); // add on last value's stop (one after to match convention of loop)
-    out
+    Ok(out)
 }
 
 #[inline]
@@ -173,10 +176,10 @@ where
         row_indices: &[I],
         column_indices: Vec<I>,
         values: Vec<Float>,
-    ) -> AuctionSolver<I> {
-        assert!(num_rows <= num_cols);
-        assert!(row_indices.len() == column_indices.len() && column_indices.len() == values.len());
-        assert!(row_indices.len() < I::max_value().as_());
+    ) -> Result<AuctionSolver<I>, anyhow::Error> {
+        ensure!(num_rows <= num_cols);
+        ensure!(row_indices.len() == column_indices.len() && column_indices.len() == values.len());
+        ensure!(row_indices.len() < I::max_value().as_());
         debug_assert!(row_indices.is_sorted(), "expecting sorted row indices");
         // Calculate optimum initial eps and target eps
         // C = max |aij| for all i, j in A(i)
@@ -186,7 +189,7 @@ where
             .expect("values should not be empty");
 
         let prices = vec![0.; num_cols.as_()];
-        let i_starts_stops = cumulative_idxs(row_indices);
+        let i_starts_stops = cumulative_idxs(row_indices)?;
         let j_counts = diff(&i_starts_stops);
 
         // choose eps values
@@ -194,7 +197,7 @@ where
         let float_num_rows: Float = num_rows.as_();
         let target_eps = 1.0 / float_num_rows;
 
-        AuctionSolver::<I> {
+        Ok(AuctionSolver::<I> {
             num_rows,
             num_cols,
             i_starts_stops,
@@ -212,7 +215,7 @@ where
 
             unassigned_people: num_iter::range(I::zero(), num_rows).collect(),
             person_to_assignment_idx: num_iter::range(I::zero(), num_rows).collect(),
-        }
+        })
     }
 
     #[inline]
@@ -261,14 +264,19 @@ where
                     .iter_mut()
                     .for_each(|i_ref| *i_ref = I::max_value());
                 solution.num_unassigned = self.num_rows;
-                self.unassigned_people
-                    .iter_mut()
-                    .enumerate()
-                    .for_each(|(i, item_ref)| *item_ref = I::from_usize(i).unwrap());
-                self.person_to_assignment_idx
-                    .iter_mut()
-                    .enumerate()
-                    .for_each(|(i, item_ref)| *item_ref = I::from_usize(i).unwrap());
+                num_iter::range(
+                    I::zero(),
+                    I::from_usize(self.unassigned_people.len()).unwrap(),
+                )
+                .zip(self.unassigned_people.iter_mut())
+                .for_each(|(i, item_ref)| *item_ref = i);
+
+                num_iter::range(
+                    I::zero(),
+                    I::from_usize(self.person_to_assignment_idx.len()).unwrap(),
+                )
+                .zip(self.person_to_assignment_idx.iter_mut())
+                .for_each(|(i, item_ref)| *item_ref = i);
 
                 solution.nreductions += 1
             }
@@ -365,7 +373,8 @@ where
             if i != I::max_value() {
                 self.prices[j_usize] = self.best_bids[j_usize];
                 let i_usize: usize = i.as_();
-                let assignment_idx: usize = self.person_to_assignment_idx[i_usize].as_();
+                let assignment_idx: I = self.person_to_assignment_idx[i_usize];
+                let assignment_idx_usize: usize = assignment_idx.as_();
 
                 // unassign previous i (if any)
                 let prev_i = solution.object_to_person[j_usize];
@@ -376,11 +385,10 @@ where
 
                     // let old i take new i's place in unassigned people list for faster reading
                     self.person_to_assignment_idx[i_usize] = I::max_value();
-                    self.person_to_assignment_idx[prev_i_usize] =
-                        I::from_usize(assignment_idx).unwrap();
-                    self.unassigned_people[assignment_idx] = prev_i;
+                    self.person_to_assignment_idx[prev_i_usize] = assignment_idx;
+                    self.unassigned_people[assignment_idx_usize] = prev_i;
                 } else {
-                    self.unassigned_people[assignment_idx] = I::max_value(); // store empty space in assignment list
+                    self.unassigned_people[assignment_idx_usize] = I::max_value(); // store empty space in assignment list
                     self.person_to_assignment_idx[i_usize] = I::max_value();
                 }
 
@@ -501,7 +509,7 @@ mod tests {
     #[test]
     fn test_cumulative_idx() {
         let arr = [0, 0, 0, 1, 1, 1, 1];
-        let res = cumulative_idxs::<u16>(&arr);
+        let res = cumulative_idxs::<u16>(&arr).unwrap();
         assert_eq!(res, [0, 3, 7]);
     }
 
@@ -562,7 +570,8 @@ mod tests {
             row_indices.as_slice(),
             column_indices,
             values,
-        );
+        )
+        .unwrap();
         let solution = solver.solve();
         assert!(solution.optimal_soln_found);
         assert!(solution.num_unassigned == 0);
