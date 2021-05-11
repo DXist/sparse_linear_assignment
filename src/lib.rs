@@ -2,43 +2,40 @@
 use log;
 use log::trace;
 use num_iter;
-use num_traits::{AsPrimitive, FromPrimitive, NumAssign, NumCast, PrimInt, ToPrimitive, Unsigned};
+use num_traits::{AsPrimitive, FromPrimitive, NumAssign, PrimInt, Unsigned};
 use std::fmt::{Debug, Display};
 pub type Float = f64;
-pub type IBounds = u32;
-// pub const NONE: I = I::MAX;
 
 #[inline]
-pub fn cumulative_idxs<I, T>(arr: &[I]) -> Vec<T>
+pub fn cumulative_idxs<I>(arr: &[I]) -> Vec<I>
 where
-    I: PrimInt + Unsigned + NumAssign,
-    T: PrimInt + Unsigned + ToPrimitive + FromPrimitive,
+    I: PrimInt + Unsigned + NumAssign + FromPrimitive,
 {
     // Given an ordered set of integers 0-N, returns an array of size N+1, where each element gives the index of
     //  stop of the number / start of the next
     // [0, 0, 0, 1, 1, 1, 1] -> [0, 3, 7]
-    let mut out: Vec<T> = Vec::with_capacity(arr.len() + 1);
-    out.push(T::zero());
+    let mut out: Vec<I> = Vec::with_capacity(arr.len() + 1);
+    out.push(I::zero());
     if arr.len() == 0 {
         return out;
     }
     let mut value = I::zero();
-    for (i, arr_i_ref) in arr.iter().enumerate() {
+    let arr_len = I::from_usize(arr.len()).unwrap();
+    for (i, arr_i_ref) in num_iter::range(I::zero(), arr_len).zip(arr.iter()) {
         if *arr_i_ref > value {
-            out.push(T::from_usize(i).unwrap()); // set start of new value to i
+            out.push(i); // set start of new value to i
             value += I::one();
         }
     }
 
-    out.push(T::from_usize(arr.len()).unwrap()); // add on last value's stop (one after to match convention of loop)
+    out.push(arr_len); // add on last value's stop (one after to match convention of loop)
     out
 }
 
 #[inline]
-pub fn diff<I, T>(arr: &[I]) -> Vec<T>
+pub fn diff<I>(arr: &[I]) -> Vec<I>
 where
-    I: PrimInt + Unsigned + NumCast,
-    T: PrimInt + Unsigned + ToPrimitive,
+    I: PrimInt + Unsigned,
 {
     // Returns the 1D difference of a provided memory space of size N
     let mut iter = arr.iter().peekable();
@@ -46,7 +43,7 @@ where
 
     while let Some(item_ref) = iter.next() {
         if let Some(&next_item_ref) = iter.peek() {
-            out.push(T::from(*next_item_ref - *item_ref).unwrap());
+            out.push(*next_item_ref - *item_ref);
         }
     }
     out
@@ -118,23 +115,21 @@ where
 
 /// Solver for auction problem
 /// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
-pub struct AuctionSolver<I, T>
+pub struct AuctionSolver<I>
 where
     I: PrimInt
         + Unsigned
         + Display
         + Debug
         + AsPrimitive<usize>
-        + AsPrimitive<T>
         + AsPrimitive<Float>
         + FromPrimitive
         + NumAssign,
-    T: PrimInt + Unsigned + Display + Debug + AsPrimitive<usize> + FromPrimitive + NumAssign,
 {
     num_rows: I,
     num_cols: I,
     prices: Vec<Float>,
-    i_starts_stops: Vec<T>,
+    i_starts_stops: Vec<I>,
     j_counts: Vec<I>,
     column_indices: Vec<I>,
     // memory view of all values
@@ -153,18 +148,16 @@ where
     person_to_assignment_idx: Vec<I>,
 }
 
-impl<I, T> AuctionSolver<I, T>
+impl<I> AuctionSolver<I>
 where
     I: PrimInt
         + Unsigned
         + Display
         + Debug
         + AsPrimitive<usize>
-        + AsPrimitive<T>
         + AsPrimitive<Float>
         + FromPrimitive
         + NumAssign,
-    T: PrimInt + Unsigned + Display + Debug + AsPrimitive<usize> + FromPrimitive + NumAssign,
 {
     const REDUCTION_FACTOR: Float = 0.15;
     const MAX_ITERATIONS: u32 =
@@ -180,12 +173,10 @@ where
         row_indices: &[I],
         column_indices: Vec<I>,
         values: Vec<Float>,
-    ) -> AuctionSolver<I, T> {
-        debug_assert!(num_rows <= num_cols);
-        debug_assert!(
-            row_indices.len() == column_indices.len() && column_indices.len() == values.len()
-        );
-        assert!(row_indices.len() < T::max_value().as_());
+    ) -> AuctionSolver<I> {
+        assert!(num_rows <= num_cols);
+        assert!(row_indices.len() == column_indices.len() && column_indices.len() == values.len());
+        assert!(row_indices.len() < I::max_value().as_());
         debug_assert!(row_indices.is_sorted(), "expecting sorted row indices");
         // Calculate optimum initial eps and target eps
         // C = max |aij| for all i, j in A(i)
@@ -203,7 +194,7 @@ where
         let float_num_rows: Float = num_rows.as_();
         let target_eps = 1.0 / float_num_rows;
 
-        AuctionSolver::<I, T> {
+        AuctionSolver::<I> {
             num_rows,
             num_cols,
             i_starts_stops,
@@ -214,7 +205,7 @@ where
             start_eps,
             target_eps,
 
-            max_iterations: AuctionSolver::<I, T>::MAX_ITERATIONS,
+            max_iterations: AuctionSolver::<I>::MAX_ITERATIONS,
 
             best_bids: vec![Float::NEG_INFINITY; num_cols.as_()],
             best_bidders: vec![I::max_value(); num_cols.as_()],
@@ -257,7 +248,7 @@ where
                     break;
                 }
 
-                solution.eps *= AuctionSolver::<I, T>::REDUCTION_FACTOR;
+                solution.eps *= AuctionSolver::<I>::REDUCTION_FACTOR;
                 trace!("REDUCTION: eps {}", solution.eps);
 
                 // reset all trackers of people and objects
@@ -304,7 +295,7 @@ where
                 let i_usize: usize = i.as_();
                 let num_objects_i: I = self.j_counts[i_usize];
                 let num_objects = num_objects_i.as_(); // the number of objects this person is able to bid on
-                let start_i: T = self.i_starts_stops[i_usize];
+                let start_i: I = self.i_starts_stops[i_usize];
                 let start: usize = start_i.as_(); // in flattened index format, the starting index of this person's objects/values
                                                   // initially 0 object is considered the best
                 let mut jbest: I = self.column_indices[start];
@@ -437,9 +428,9 @@ where
             }
 
             let num_objects = self.j_counts[i_usize];
-            let start: T = self.i_starts_stops[i_usize];
+            let start: I = self.i_starts_stops[i_usize];
             for idx in num_iter::range(I::zero(), num_objects) {
-                let glob_idx = (start + idx.as_()).as_();
+                let glob_idx: usize = (start + idx).as_();
                 let l = self.column_indices[glob_idx];
                 if l == j {
                     obj += self.values[glob_idx];
@@ -469,7 +460,7 @@ where
             let mut choice_cost = Float::NEG_INFINITY;
             // first, get cost of choice j
             for idx in num_iter::range(I::zero(), num_objects) {
-                let glob_idx: usize = (start + idx.as_()).as_();
+                let glob_idx: usize = (start + idx).as_();
                 let l: I = self.column_indices[glob_idx];
                 if l == j {
                     choice_cost = self.values[glob_idx];
@@ -483,7 +474,7 @@ where
             let lhs: Float = choice_cost - self.prices[j_usize] + Self::TOLERATION; // left hand side of inequality
 
             for idx in num_iter::range(I::zero(), num_objects) {
-                let glob_idx: usize = (start + idx.as_()).as_();
+                let glob_idx: usize = (start + idx).as_();
                 let k: usize = self.column_indices[glob_idx].as_();
                 let cost: Float = self.values[glob_idx];
                 if lhs < cost - self.prices[k] - self.target_eps {
@@ -510,14 +501,14 @@ mod tests {
     #[test]
     fn test_cumulative_idx() {
         let arr = [0, 0, 0, 1, 1, 1, 1];
-        let res = cumulative_idxs::<u16, u16>(&arr);
+        let res = cumulative_idxs::<u16>(&arr);
         assert_eq!(res, [0, 3, 7]);
     }
 
     #[test]
     fn test_diff() {
         let arr = [0, 3, 7];
-        let res = diff::<u16, u16>(&arr);
+        let res = diff::<u16>(&arr);
         assert_eq!(res, [3, 4]);
     }
 
@@ -565,7 +556,7 @@ mod tests {
                 trace!("({} -> {:?}: {:?})", i, j_samples, j_values);
             });
 
-        let mut solver = AuctionSolver::<_, u16>::new(
+        let mut solver = AuctionSolver::new(
             NUM_ROWS,
             NUM_COLS,
             row_indices.as_slice(),

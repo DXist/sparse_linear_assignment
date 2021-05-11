@@ -125,8 +125,7 @@ fn bench_symmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt
                         || input.clone(),
                         |(size, r, c, v)| {
                             let solution =
-                                AuctionSolver::<_, u32>::new(size, size, r.as_slice(), c, v)
-                                    .solve();
+                                AuctionSolver::new(size, size, r.as_slice(), c, v).solve();
                             if !solution.optimal_soln_found {
                                 println!(
                                     "not optimal: nits {}, nreductions {}, num_unassigned {}, {}",
@@ -155,7 +154,7 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
     for num_of_people in (100..=max_num_of_people).step_by(200) {
         for arcs_per_person in (32..=max_arcs_per_person).step_by(8) {
             // let num_of_objects = num_of_people * arcs_per_person;
-            let num_of_objects = 80000;
+            let num_of_objects = 60000;
             let (row_indices, column_indices, values) = gen_asymmetric_input(
                 num_of_people as u64,
                 num_of_people,
@@ -187,7 +186,7 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
                     b.iter_batched(
                         || input.clone(),
                         |(num_of_people, num_of_objects, r, c, v)| {
-                            let solution = AuctionSolver::<_, u32>::new(
+                            let solution = AuctionSolver::new(
                                 num_of_people,
                                 num_of_objects,
                                 r.as_slice(),
