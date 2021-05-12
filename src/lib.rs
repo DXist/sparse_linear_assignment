@@ -9,17 +9,17 @@ use std::fmt::{Debug, Display};
 pub type Float = f64;
 
 #[inline]
-pub fn cumulative_idxs<I>(arr: &[I]) -> Result<Vec<I>, anyhow::Error>
+pub fn cumulative_idxs<I>(arr: &[I], out: &mut Vec<I>) -> Result<(), anyhow::Error>
 where
     I: PrimInt + Unsigned + NumAssign + FromPrimitive,
 {
     // Given an ordered set of integers 0-N, returns an array of size N+1, where each element gives the index of
     //  stop of the number / start of the next
     // [0, 0, 0, 1, 1, 1, 1] -> [0, 3, 7]
-    let mut out: Vec<I> = Vec::with_capacity(arr.len() + 1);
+    out.clear();
     out.push(I::zero());
-    if arr.len() == 0 {
-        return Ok(out);
+    if arr.is_empty() {
+        return Ok(());
     }
     let mut value = I::zero();
     let arr_len = I::from_usize(arr.len())
@@ -32,24 +32,23 @@ where
     }
 
     out.push(arr_len); // add on last value's stop (one after to match convention of loop)
-    Ok(out)
+    Ok(())
 }
 
 #[inline]
-pub fn diff<I>(arr: &[I]) -> Vec<I>
+pub fn diff<I>(arr: &[I], out: &mut Vec<I>)
 where
     I: PrimInt + Unsigned,
 {
     // Returns the 1D difference of a provided memory space of size N
     let mut iter = arr.iter().peekable();
-    let mut out = Vec::with_capacity(arr.len() + 1);
+    out.clear();
 
     while let Some(item_ref) = iter.next() {
         if let Some(&next_item_ref) = iter.peek() {
             out.push(*next_item_ref - *item_ref);
         }
     }
-    out
 }
 
 fn push_all_left<I>(data: &mut [I], mapper: &mut [I], num_ints: I, size: I)
@@ -91,7 +90,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AuctionSolution<I>
 where
     I: PrimInt
@@ -118,6 +117,7 @@ where
 
 /// Solver for auction problem
 /// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
+#[derive(Clone)]
 pub struct AuctionSolver<I>
 where
     I: PrimInt
@@ -134,11 +134,11 @@ where
     prices: Vec<Float>,
     i_starts_stops: Vec<I>,
     j_counts: Vec<I>,
+    row_indices: Vec<I>,
     column_indices: Vec<I>,
     // memory view of all values
     values: Vec<Float>,
 
-    start_eps: Float,
     target_eps: Float,
 
     max_iterations: u32,
@@ -171,68 +171,146 @@ where
         };
 
     pub fn new(
+        row_capacity: usize,
+        column_capacity: usize,
+        arcs_capacity: usize,
+    ) -> (AuctionSolver<I>, AuctionSolution<I>) {
+        (
+            AuctionSolver::<I> {
+                num_rows: I::zero(),
+                num_cols: I::zero(),
+                i_starts_stops: Vec::with_capacity(row_capacity + 1),
+                j_counts: Vec::with_capacity(row_capacity),
+                prices: Vec::with_capacity(column_capacity),
+                row_indices: Vec::with_capacity(arcs_capacity),
+                column_indices: Vec::with_capacity(arcs_capacity),
+                values: Vec::with_capacity(arcs_capacity),
+                target_eps: Float::NAN,
+
+                max_iterations: AuctionSolver::<I>::MAX_ITERATIONS,
+
+                best_bids: Vec::with_capacity(column_capacity),
+                best_bidders: Vec::with_capacity(column_capacity),
+
+                unassigned_people: Vec::with_capacity(row_capacity),
+                person_to_assignment_idx: Vec::with_capacity(row_capacity),
+            },
+            AuctionSolution::<I> {
+                person_to_object: Vec::with_capacity(row_capacity),
+                object_to_person: Vec::with_capacity(column_capacity),
+                eps: Float::NAN,
+                nits: 0,
+                nreductions: 0,
+                optimal_soln_found: false,
+                num_assigned: I::zero(),
+                num_unassigned: I::max_value(),
+            },
+        )
+    }
+    #[inline]
+    pub fn init(
+        &mut self,
         num_rows: I,
         num_cols: I,
-        row_indices: &[I],
-        column_indices: Vec<I>,
-        values: Vec<Float>,
-    ) -> Result<AuctionSolver<I>, anyhow::Error> {
+        max_iterations: Option<u32>,
+    ) -> Result<(), anyhow::Error> {
         ensure!(num_rows <= num_cols);
-        ensure!(row_indices.len() == column_indices.len() && column_indices.len() == values.len());
-        ensure!(row_indices.len() < I::max_value().as_());
-        debug_assert!(row_indices.is_sorted(), "expecting sorted row indices");
+        ensure!(num_rows < I::max_value());
+        self.num_rows = num_rows;
+        self.num_cols = num_cols;
+
+        let num_cols_usize: usize = num_cols.as_();
+        self.prices.resize(num_cols_usize, 0.);
+        self.row_indices.clear();
+        self.column_indices.clear();
+        self.values.clear();
+        self.target_eps = Float::NAN;
+
+        self.max_iterations = if let Some(iterations) = max_iterations {
+            iterations
+        } else {
+            Self::MAX_ITERATIONS
+        };
+
+        self.best_bids.resize(num_cols_usize, Float::NEG_INFINITY);
+        self.best_bidders.resize(num_cols_usize, I::max_value());
+
+        self.unassigned_people.clear();
+        let num_rows_usize = num_rows.as_();
+        let mut range = num_iter::range(I::zero(), num_rows);
+        self.unassigned_people
+            .resize_with(num_rows_usize, || range.next().unwrap());
+        let mut range = num_iter::range(I::zero(), num_rows);
+        self.person_to_assignment_idx
+            .resize_with(num_rows_usize, || range.next().unwrap());
+        Ok(())
+    }
+
+    #[inline]
+    pub fn add_value(&mut self, row: I, column: I, value: Float) {
+        self.row_indices.push(row);
+        self.column_indices.push(column);
+        self.values.push(value);
+    }
+
+    #[inline]
+    pub fn extend_from_values(&mut self, rows: &[I], columns: &[I], values: &[Float]) {
+        debug_assert!(rows.len() == columns.len() && columns.len() == values.len());
+        self.row_indices.extend_from_slice(rows);
+        self.column_indices.extend_from_slice(columns);
+        self.values.extend_from_slice(values);
+    }
+
+    pub fn num_of_arcs(&self) -> usize {
+        self.row_indices.len()
+    }
+
+    #[inline]
+    pub fn solve(&mut self, solution: &mut AuctionSolution<I>) -> Result<(), anyhow::Error> {
+        let arcs_count = self.row_indices.len();
+        ensure!(arcs_count > 0);
+        ensure!(arcs_count < I::max_value().as_());
+        ensure!(
+            arcs_count == self.column_indices.len()
+                && self.column_indices.len() == self.values.len()
+        );
+        debug_assert!(self.row_indices.is_sorted(), "expecting sorted row indices");
+        debug_assert!(*self.row_indices.iter().max().unwrap() < self.num_rows);
+        debug_assert!(*self.column_indices.iter().max().unwrap() < self.num_cols);
+
+        cumulative_idxs(&self.row_indices, &mut self.i_starts_stops)?;
+        diff(&self.i_starts_stops, &mut self.j_counts);
+        let float_num_rows: Float = self.num_rows.as_();
+        self.target_eps = 1.0 / float_num_rows;
+
+        solution.person_to_object.clear();
+        solution
+            .person_to_object
+            .resize(self.num_rows.as_(), I::max_value());
+        solution.object_to_person.clear();
+        solution
+            .object_to_person
+            .resize(self.num_cols.as_(), I::max_value());
+        // choose eps values
         // Calculate optimum initial eps and target eps
         // C = max |aij| for all i, j in A(i)
-        let c = values
+        let c = self
+            .values
             .iter()
             .max_by(|x, y| x.abs().total_cmp(&y.abs()))
             .expect("values should not be empty");
 
-        let prices = vec![0.; num_cols.as_()];
-        let i_starts_stops = cumulative_idxs(row_indices)?;
-        let j_counts = diff(&i_starts_stops);
-
-        // choose eps values
         let start_eps = c / 2.0;
-        let float_num_rows: Float = num_rows.as_();
-        let target_eps = 1.0 / float_num_rows;
+        solution.eps = start_eps;
+        solution.nits = 0;
+        solution.nreductions = 0;
+        solution.optimal_soln_found = false;
+        solution.num_assigned = I::zero();
+        solution.num_unassigned = self.num_rows;
 
-        Ok(AuctionSolver::<I> {
-            num_rows,
-            num_cols,
-            i_starts_stops,
-            j_counts,
-            prices,
-            column_indices,
-            values,
-            start_eps,
-            target_eps,
-
-            max_iterations: AuctionSolver::<I>::MAX_ITERATIONS,
-
-            best_bids: vec![Float::NEG_INFINITY; num_cols.as_()],
-            best_bidders: vec![I::max_value(); num_cols.as_()],
-
-            unassigned_people: num_iter::range(I::zero(), num_rows).collect(),
-            person_to_assignment_idx: num_iter::range(I::zero(), num_rows).collect(),
-        })
-    }
-
-    #[inline]
-    pub fn solve(&mut self) -> AuctionSolution<I> {
-        let mut solution = AuctionSolution::<I> {
-            person_to_object: vec![I::max_value(); self.num_rows.as_()],
-            object_to_person: vec![I::max_value(); self.num_cols.as_()],
-            eps: self.start_eps,
-            nits: 0,
-            nreductions: 0,
-            optimal_soln_found: false,
-            num_assigned: I::zero(),
-            num_unassigned: self.num_rows,
-        };
         loop {
-            self.bid_and_assign(&mut solution);
-            trace!("OBJECTIVE: {:?}", self.get_objective(&solution));
+            self.bid_and_assign(solution);
+            trace!("OBJECTIVE: {:?}", self.get_objective(solution));
             solution.nits += 1;
 
             let is_optimal = (solution.num_unassigned == I::zero())
@@ -283,7 +361,7 @@ where
         }
 
         solution.num_assigned = self.num_rows - solution.num_unassigned;
-        solution
+        Ok(())
     }
 
     fn bid_and_assign(&mut self, solution: &mut AuctionSolution<I>) {
@@ -509,15 +587,17 @@ mod tests {
     #[test]
     fn test_cumulative_idx() {
         let arr = [0, 0, 0, 1, 1, 1, 1];
-        let res = cumulative_idxs::<u16>(&arr).unwrap();
-        assert_eq!(res, [0, 3, 7]);
+        let mut out = Vec::with_capacity(arr.len() + 1);
+        cumulative_idxs::<u16>(&arr, &mut out).unwrap();
+        assert_eq!(out, [0, 3, 7]);
     }
 
     #[test]
     fn test_diff() {
         let arr = [0, 3, 7];
-        let res = diff::<u16>(&arr);
-        assert_eq!(res, [3, 4]);
+        let mut out = Vec::with_capacity(arr.len() - 1);
+        diff::<u16>(&arr, &mut out);
+        assert_eq!(out, [3, 4]);
     }
 
     #[test]
@@ -538,15 +618,20 @@ mod tests {
         init();
         const NUM_ROWS: u16 = 5;
         const NUM_COLS: u16 = 5;
-        let mut row_indices = Vec::with_capacity(NUM_ROWS as usize);
-        let mut column_indices = Vec::with_capacity(NUM_COLS as usize);
-        let mut values = Vec::with_capacity((NUM_ROWS * NUM_COLS) as usize);
         let mut val_rng = ChaCha8Rng::seed_from_u64(1);
         let mut filter_rng = ChaCha8Rng::seed_from_u64(2);
 
         const MAX_VALUE: Float = 10.0;
         let between = Uniform::from(0.0..MAX_VALUE);
         const ARCS_PER_PERSON: usize = 2;
+
+        let (mut solver, mut solution) = AuctionSolver::new(
+            NUM_ROWS.into(),
+            NUM_COLS.into(),
+            ARCS_PER_PERSON * NUM_ROWS as usize,
+        );
+
+        solver.init(NUM_ROWS, NUM_COLS, None).unwrap();
 
         (0..NUM_ROWS)
             .map(|i| {
@@ -556,26 +641,22 @@ mod tests {
                 (i, j_samples)
             })
             .for_each(|(i, j_samples)| {
-                row_indices.extend(std::iter::repeat(i).take(j_samples.len()));
-                column_indices.extend_from_slice(j_samples.as_slice());
+                let i_values = std::iter::repeat(i)
+                    .take(j_samples.len())
+                    .collect::<Vec<u16>>();
                 let j_values = j_samples.map(|_| between.sample(&mut val_rng));
-                values.extend_from_slice(j_values.as_slice());
+                solver.extend_from_values(
+                    i_values.as_slice(),
+                    j_samples.as_slice(),
+                    j_values.as_slice(),
+                );
 
                 trace!("({} -> {:?}: {:?})", i, j_samples, j_values);
             });
-
-        let mut solver = AuctionSolver::new(
-            NUM_ROWS,
-            NUM_COLS,
-            row_indices.as_slice(),
-            column_indices,
-            values,
-        )
-        .unwrap();
-        let solution = solver.solve();
+        solver.solve(&mut solution).unwrap();
         assert!(solution.optimal_soln_found);
         assert!(solution.num_unassigned == 0);
-        trace!("{:?}", solution,);
+        trace!("{:?}", solution);
         Ok(())
     }
 }
