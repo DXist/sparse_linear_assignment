@@ -9,7 +9,7 @@ use std::fmt::{Debug, Display};
 pub type Float = f64;
 
 #[inline]
-pub fn cumulative_idxs<I>(arr: &[I], out: &mut Vec<I>) -> Result<(), anyhow::Error>
+fn cumulative_idxs<I>(arr: &[I], out: &mut Vec<I>) -> Result<(), anyhow::Error>
 where
     I: PrimInt + Unsigned + NumAssign + FromPrimitive,
 {
@@ -36,7 +36,7 @@ where
 }
 
 #[inline]
-pub fn diff<I>(arr: &[I], out: &mut Vec<I>)
+fn diff<I>(arr: &[I], out: &mut Vec<I>)
 where
     I: PrimInt + Unsigned,
 {
