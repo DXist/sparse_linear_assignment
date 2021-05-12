@@ -232,7 +232,9 @@ where
             Self::MAX_ITERATIONS
         };
 
+        self.best_bids.clear();
         self.best_bids.resize(num_cols_usize, Float::NEG_INFINITY);
+        self.best_bidders.clear();
         self.best_bidders.resize(num_cols_usize, I::max_value());
 
         self.unassigned_people.clear();
@@ -241,6 +243,7 @@ where
         self.unassigned_people
             .resize_with(num_rows_usize, || range.next().unwrap());
         let mut range = num_iter::range(I::zero(), num_rows);
+        self.person_to_assignment_idx.clear();
         self.person_to_assignment_idx
             .resize_with(num_rows_usize, || range.next().unwrap());
         Ok(())
@@ -269,6 +272,7 @@ where
     pub fn solve(&mut self, solution: &mut AuctionSolution<I>) -> Result<(), anyhow::Error> {
         let arcs_count = self.row_indices.len();
         ensure!(arcs_count > 0);
+        ensure!(self.num_rows > I::zero() && self.num_cols > I::zero());
         ensure!(arcs_count < I::max_value().as_());
         ensure!(
             arcs_count == self.column_indices.len()
