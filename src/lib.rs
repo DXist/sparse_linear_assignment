@@ -220,6 +220,7 @@ where
         self.num_cols = num_cols;
 
         let num_cols_usize: usize = num_cols.as_();
+        self.prices.clear();
         self.prices.resize(num_cols_usize, 0.);
         self.row_indices.clear();
         self.column_indices.clear();
