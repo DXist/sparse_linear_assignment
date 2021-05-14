@@ -8,49 +8,6 @@ use num_traits::{AsPrimitive, FromPrimitive, NumAssign, PrimInt, Unsigned};
 use std::fmt::{Debug, Display};
 pub type Float = f64;
 
-#[inline]
-fn cumulative_idxs<I>(arr: &[I], out: &mut Vec<I>) -> Result<(), anyhow::Error>
-where
-    I: PrimInt + Unsigned + NumAssign + FromPrimitive,
-{
-    // Given an ordered set of integers 0-N, returns an array of size N+1, where each element gives the index of
-    //  stop of the number / start of the next
-    // [0, 0, 0, 1, 1, 1, 1] -> [0, 3, 7]
-    out.clear();
-    out.push(I::zero());
-    if arr.is_empty() {
-        return Ok(());
-    }
-    let mut value = I::zero();
-    let arr_len = I::from_usize(arr.len())
-        .ok_or_else(|| anyhow_error!("array is longer then max value of type"))?;
-    for (i, arr_i_ref) in num_iter::range(I::zero(), arr_len).zip(arr.iter()) {
-        if *arr_i_ref > value {
-            out.push(i); // set start of new value to i
-            value += I::one();
-        }
-    }
-
-    out.push(arr_len); // add on last value's stop (one after to match convention of loop)
-    Ok(())
-}
-
-#[inline]
-fn diff<I>(arr: &[I], out: &mut Vec<I>)
-where
-    I: PrimInt + Unsigned,
-{
-    // Returns the 1D difference of a provided memory space of size N
-    let mut iter = arr.iter().peekable();
-    out.clear();
-
-    while let Some(item_ref) = iter.next() {
-        if let Some(&next_item_ref) = iter.peek() {
-            out.push(*next_item_ref - *item_ref);
-        }
-    }
-}
-
 fn push_all_left<I>(data: &mut [I], mapper: &mut [I], num_ints: I, size: I)
 where
     I: PrimInt + Unsigned + AsPrimitive<usize> + FromPrimitive + NumAssign,
@@ -134,7 +91,6 @@ where
     prices: Vec<Float>,
     i_starts_stops: Vec<I>,
     j_counts: Vec<I>,
-    row_indices: Vec<I>,
     column_indices: Vec<I>,
     // memory view of all values
     values: Vec<Float>,
@@ -142,10 +98,6 @@ where
     target_eps: Float,
 
     max_iterations: u32,
-
-    bidders: Vec<I>,
-    objects_bidded: Vec<I>,
-    bids: Vec<Float>,
 
     best_bids: Vec<Float>,
     best_bidders: Vec<I>,
@@ -186,16 +138,11 @@ where
                 i_starts_stops: Vec::with_capacity(row_capacity + 1),
                 j_counts: Vec::with_capacity(row_capacity),
                 prices: Vec::with_capacity(column_capacity),
-                row_indices: Vec::with_capacity(arcs_capacity),
                 column_indices: Vec::with_capacity(arcs_capacity),
                 values: Vec::with_capacity(arcs_capacity),
                 target_eps: Float::NAN,
 
                 max_iterations: AuctionSolver::<I>::MAX_ITERATIONS,
-
-                bidders: Vec::with_capacity(row_capacity),
-                objects_bidded: Vec::with_capacity(row_capacity),
-                bids: Vec::with_capacity(row_capacity),
 
                 best_bids: Vec::with_capacity(column_capacity),
                 best_bidders: Vec::with_capacity(column_capacity),
@@ -227,10 +174,14 @@ where
         self.num_rows = num_rows;
         self.num_cols = num_cols;
 
+        self.i_starts_stops.clear();
+        self.i_starts_stops.resize(2, I::zero());
+        self.j_counts.clear();
+        self.j_counts.push(I::zero());
+
         let num_cols_usize: usize = num_cols.as_();
         self.prices.clear();
         self.prices.resize(num_cols_usize, 0.);
-        self.row_indices.clear();
         self.column_indices.clear();
         self.values.clear();
         self.target_eps = Float::NAN;
@@ -240,10 +191,6 @@ where
         } else {
             Self::MAX_ITERATIONS
         };
-
-        self.bidders.clear();
-        self.objects_bidded.clear();
-        self.bids.clear();
 
         self.best_bids.clear();
         self.best_bids.resize(num_cols_usize, Float::NEG_INFINITY);
@@ -263,27 +210,71 @@ where
     }
 
     #[inline]
-    pub fn add_value(&mut self, row: I, column: I, value: Float) {
-        self.row_indices.push(row);
+    pub fn add_value(&mut self, row: I, column: I, value: Float) -> Result<(), anyhow::Error> {
+        let current_row = self.j_counts.len() - 1;
+        let row_usize: usize = row.as_();
+        debug_assert!(row_usize == current_row || row_usize == current_row + 1);
+
+        let cumulative_offset = self.i_starts_stops[current_row + 1]
+            .checked_add(&I::one())
+            .ok_or_else(|| {
+                anyhow_error!("i_starts_stops vector is longer then max value of type")
+            })?;
+
+        if row_usize > current_row {
+            // starting the next row
+            self.i_starts_stops.push(cumulative_offset);
+            self.j_counts.push(I::one());
+        } else {
+            self.i_starts_stops[current_row + 1] = cumulative_offset;
+            self.j_counts[current_row] += I::one()
+        }
+
         self.column_indices.push(column);
         self.values.push(value);
+        Ok(())
     }
 
     #[inline]
-    pub fn extend_from_values(&mut self, rows: &[I], columns: &[I], values: &[Float]) {
-        debug_assert!(rows.len() == columns.len() && columns.len() == values.len());
-        self.row_indices.extend_from_slice(rows);
+    pub fn extend_from_values(
+        &mut self,
+        row: I,
+        columns: &[I],
+        values: &[Float],
+    ) -> Result<(), anyhow::Error> {
+        debug_assert!(columns.len() == values.len());
+        let current_row = self.j_counts.len() - 1;
+        let row_usize: usize = row.as_();
+        debug_assert!(row_usize == current_row || row_usize == current_row + 1);
+
+        let length_increment = I::from_usize(columns.len())
+            .ok_or_else(|| anyhow_error!(" columns slice is longer then max value of type"))?;
+        let cumulative_offset = self.i_starts_stops[current_row + 1]
+            .checked_add(&length_increment)
+            .ok_or_else(|| {
+                anyhow_error!("i_starts_stops vector is longer then max value of type")
+            })?;
+
+        if row_usize > current_row {
+            // starting the next row
+            self.i_starts_stops.push(cumulative_offset);
+            self.j_counts.push(length_increment);
+        } else {
+            self.i_starts_stops[current_row + 1] = cumulative_offset;
+            self.j_counts[current_row] += length_increment;
+        }
         self.column_indices.extend_from_slice(columns);
         self.values.extend_from_slice(values);
+        Ok(())
     }
 
     pub fn num_of_arcs(&self) -> usize {
-        self.row_indices.len()
+        self.column_indices.len()
     }
 
     #[inline]
     pub fn solve(&mut self, solution: &mut AuctionSolution<I>) -> Result<(), anyhow::Error> {
-        let arcs_count = self.row_indices.len();
+        let arcs_count = self.num_of_arcs();
         ensure!(arcs_count > 0);
         ensure!(self.num_rows > I::zero() && self.num_cols > I::zero());
         ensure!(arcs_count < I::max_value().as_());
@@ -291,12 +282,8 @@ where
             arcs_count == self.column_indices.len()
                 && self.column_indices.len() == self.values.len()
         );
-        debug_assert!(self.row_indices.is_sorted(), "expecting sorted row indices");
-        debug_assert!(*self.row_indices.iter().max().unwrap() < self.num_rows);
         debug_assert!(*self.column_indices.iter().max().unwrap() < self.num_cols);
 
-        cumulative_idxs(&self.row_indices, &mut self.i_starts_stops)?;
-        diff(&self.i_starts_stops, &mut self.j_counts);
         let float_num_rows: Float = self.num_rows.as_();
         self.target_eps = 1.0 / float_num_rows;
 
@@ -386,65 +373,63 @@ where
     fn bid_and_assign(&mut self, solution: &mut AuctionSolution<I>) {
         // number of bids to be made
         let num_bidders = solution.num_unassigned.as_();
-
-        self.bidders.clear();
-        self.bidders.resize(num_bidders, I::max_value());
-        self.objects_bidded.clear();
-        self.objects_bidded.resize(num_bidders, I::max_value());
-        self.bids.clear();
-        self.bids.resize(num_bidders, Float::NEG_INFINITY);
+        let mut bidders = vec![I::max_value(); num_bidders];
+        let mut objects_bidded = vec![I::max_value(); num_bidders];
+        let mut bids = vec![Float::NEG_INFINITY; num_bidders];
 
         // BIDDING PHASE
         // each person now makes a bid:
-        (0..num_bidders).for_each(|nbidder| {
-            let i: I = self.unassigned_people[nbidder];
-            let i_usize: usize = i.as_();
-            let num_objects_i: I = self.j_counts[i_usize];
-            let num_objects = num_objects_i.as_(); // the number of objects this person is able to bid on
-
-            let start_i: I = self.i_starts_stops[i_usize];
-            let start: usize = start_i.as_(); // in flattened index format, the starting index of this person's objects/values
-                                              // initially 0 object is considered the best
-            let mut jbest: I = self.column_indices[start];
-            let mut costbest = self.values[start];
-            // best net reword
-            let jbest_usize: usize = jbest.as_();
-            let mut vbest = costbest - self.prices[jbest_usize];
-            // second best net reword
-            let mut wi = Float::NEG_INFINITY; //0.;
-                                              // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
-            for idx in 1..num_objects {
-                let glob_idx = start + idx;
-                let j: I = self.column_indices[glob_idx];
-                let j_usize: usize = j.as_();
-                let cost = self.values[glob_idx];
-                let vi = cost - self.prices[j_usize];
-                if vi > vbest {
-                    // if best so far (or first entry)
-                    jbest = j;
-                    wi = vbest; // store current vbest as second best, wi
-                    vbest = vi;
-                    costbest = cost;
-                } else if vi > wi {
-                    wi = vi;
+        bidders
+            .iter_mut()
+            .enumerate()
+            .for_each(|(nbidder, bidder_refmut)| {
+                let i: I = self.unassigned_people[nbidder];
+                let i_usize: usize = i.as_();
+                let num_objects_i: I = self.j_counts[i_usize];
+                let num_objects = num_objects_i.as_(); // the number of objects this person is able to bid on
+                let start_i: I = self.i_starts_stops[i_usize];
+                let start: usize = start_i.as_(); // in flattened index format, the starting index of this person's objects/values
+                                                  // initially 0 object is considered the best
+                let mut jbest: I = self.column_indices[start];
+                let mut costbest = self.values[start];
+                // best net reword
+                let jbest_usize: usize = jbest.as_();
+                let mut vbest = costbest - self.prices[jbest_usize];
+                // second best net reword
+                let mut wi = Float::NEG_INFINITY; //0.;
+                                                  // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
+                for idx in 1..num_objects {
+                    let glob_idx = start + idx;
+                    let j: I = self.column_indices[glob_idx];
+                    let j_usize: usize = j.as_();
+                    let cost = self.values[glob_idx];
+                    let vi = cost - self.prices[j_usize];
+                    if vi > vbest {
+                        // if best so far (or first entry)
+                        jbest = j;
+                        wi = vbest; // store current vbest as second best, wi
+                        vbest = vi;
+                        costbest = cost;
+                    } else if vi > wi {
+                        wi = vi;
+                    }
                 }
-            }
 
-            let bbest = costbest - wi + solution.eps; // value of new bid
+                let bbest = costbest - wi + solution.eps; // value of new bid
 
-            // store bid & its value
-            self.bidders[nbidder] = i;
-            self.bids[nbidder] = bbest;
-            self.objects_bidded[nbidder] = jbest
-        });
+                // store bid & its value
+                *bidder_refmut = i;
+                bids[nbidder] = bbest;
+                objects_bidded[nbidder] = jbest
+            });
 
         let mut num_successful_bids = 0; // counter of how many succesful bids
 
-        (0..num_bidders).for_each(|n| {
+        objects_bidded.iter().enumerate().for_each(|(n, jbid_ref)| {
             // for each bid made,
-            let i = self.bidders[n]; // bidder
-            let bid_val = self.bids[n]; // value
-            let jbid_i: I = self.objects_bidded[n];
+            let i = bidders[n]; // bidder
+            let bid_val = bids[n]; // value
+            let jbid_i: I = *jbid_ref;
             let jbid: usize = jbid_i.as_(); // object
             if bid_val > self.best_bids[jbid] {
                 // if beats current best bid for this object
@@ -597,7 +582,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{cumulative_idxs, diff, push_all_left, AuctionSolver, Float};
+    use super::{push_all_left, AuctionSolver, Float};
     use env_logger;
     use log::trace;
     use rand::distributions::{Distribution, Uniform};
@@ -606,19 +591,16 @@ mod tests {
     use reservoir_sampling::unweighted::core::r as reservoir_sample;
 
     #[test]
-    fn test_cumulative_idx() {
+    fn test_cumulative_idx_diff() {
         let arr = [0, 0, 0, 1, 1, 1, 1];
-        let mut out = Vec::with_capacity(arr.len() + 1);
-        cumulative_idxs::<u16>(&arr, &mut out).unwrap();
-        assert_eq!(out, [0, 3, 7]);
-    }
-
-    #[test]
-    fn test_diff() {
-        let arr = [0, 3, 7];
-        let mut out = Vec::with_capacity(arr.len() - 1);
-        diff::<u16>(&arr, &mut out);
-        assert_eq!(out, [3, 4]);
+        let (mut solver, _) = AuctionSolver::new(arr.len(), arr.len(), arr.len());
+        solver
+            .init(arr.len() as u16, arr.len() as u16, None)
+            .unwrap();
+        arr.iter()
+            .for_each(|i| solver.add_value(*i, 0, 0.).unwrap());
+        assert_eq!(solver.i_starts_stops, [0, 3, 7]);
+        assert_eq!(solver.j_counts, [3, 4]);
     }
 
     #[test]
@@ -662,15 +644,10 @@ mod tests {
                 (i, j_samples)
             })
             .for_each(|(i, j_samples)| {
-                let i_values = std::iter::repeat(i)
-                    .take(j_samples.len())
-                    .collect::<Vec<u16>>();
                 let j_values = j_samples.map(|_| between.sample(&mut val_rng));
-                solver.extend_from_values(
-                    i_values.as_slice(),
-                    j_samples.as_slice(),
-                    j_values.as_slice(),
-                );
+                solver
+                    .extend_from_values(i, j_samples.as_slice(), j_values.as_slice())
+                    .unwrap();
 
                 trace!("({} -> {:?}: {:?})", i, j_samples, j_values);
             });
@@ -731,19 +708,14 @@ mod tests {
             (0..costs.len() as u32)
                 .zip(costs.iter())
                 .for_each(|(i, row_ref)| {
-                    let i_indices = std::iter::repeat(i)
-                        .take(row_ref.len())
-                        .collect::<Vec<u32>>();
                     let j_indices = (0..row_ref.len() as u32).collect::<Vec<_>>();
                     let values = row_ref
                         .iter()
                         .map(|v| ((*v) as Float) * cost_multiplier)
                         .collect::<Vec<_>>();
-                    solver.extend_from_values(
-                        i_indices.as_slice(),
-                        j_indices.as_slice(),
-                        values.as_slice(),
-                    );
+                    solver
+                        .extend_from_values(i, j_indices.as_slice(), values.as_slice())
+                        .unwrap();
                 });
             solver.solve(&mut solution).unwrap();
             trace!("{:?}", solution);

@@ -39,7 +39,7 @@ fn gen_symmetric_input(
                 if ensured_i_to_j[i as usize] != UInt::MAX {
                     ensured_i_to_j[i as usize] = UInt::MAX;
                 }
-                solver.add_value(i, j, v);
+                solver.add_value(i, j, v).unwrap();
             }
         });
 }
@@ -66,23 +66,18 @@ fn gen_asymmetric_input(
             (i, j_samples)
         })
         .for_each(|(i, j_samples)| {
-            let row_indices = std::iter::repeat(i)
-                .take(j_samples.len())
-                .collect::<Vec<_>>();
             let j_values = j_samples
                 .iter()
                 .map(|_| (range_width * beta.sample(&mut val_rng) + min_value).floor())
                 .collect::<Vec<_>>();
-            solver.extend_from_values(
-                row_indices.as_slice(),
-                j_samples.as_slice(),
-                j_values.as_slice(),
-            );
+            solver
+                .extend_from_values(i, j_samples.as_slice(), j_values.as_slice())
+                .unwrap();
         });
 }
 
 fn bench_symmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt, max_size: UInt) {
-    let mut group = c.benchmark_group("symmetric");
+    let mut group = c.benchmark_group("symmetric_group");
     let (mut solver, solution) = AuctionSolver::new(
         max_size as usize,
         max_size as usize,
