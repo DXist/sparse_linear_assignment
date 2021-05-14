@@ -143,6 +143,10 @@ where
 
     max_iterations: u32,
 
+    bidders: Vec<I>,
+    objects_bidded: Vec<I>,
+    bids: Vec<Float>,
+
     best_bids: Vec<Float>,
     best_bidders: Vec<I>,
 
@@ -165,7 +169,7 @@ where
     const REDUCTION_FACTOR: Float = 0.15;
     const MAX_ITERATIONS: u32 =
         if log::STATIC_MAX_LEVEL as usize == log::LevelFilter::Trace as usize {
-            30
+            100
         } else {
             10u32.pow(6)
         };
@@ -188,6 +192,10 @@ where
                 target_eps: Float::NAN,
 
                 max_iterations: AuctionSolver::<I>::MAX_ITERATIONS,
+
+                bidders: Vec::with_capacity(row_capacity),
+                objects_bidded: Vec::with_capacity(row_capacity),
+                bids: Vec::with_capacity(row_capacity),
 
                 best_bids: Vec::with_capacity(column_capacity),
                 best_bidders: Vec::with_capacity(column_capacity),
@@ -232,6 +240,10 @@ where
         } else {
             Self::MAX_ITERATIONS
         };
+
+        self.bidders.clear();
+        self.objects_bidded.clear();
+        self.bids.clear();
 
         self.best_bids.clear();
         self.best_bids.resize(num_cols_usize, Float::NEG_INFINITY);
@@ -303,7 +315,9 @@ where
             .values
             .iter()
             .max_by(|x, y| x.abs().total_cmp(&y.abs()))
-            .expect("values should not be empty");
+            .expect("values should not be empty")
+            .abs();
+        trace!("c: {}", c);
 
         let start_eps = c / 2.0;
         solution.eps = start_eps;
@@ -372,63 +386,65 @@ where
     fn bid_and_assign(&mut self, solution: &mut AuctionSolution<I>) {
         // number of bids to be made
         let num_bidders = solution.num_unassigned.as_();
-        let mut bidders = vec![I::max_value(); num_bidders];
-        let mut objects_bidded = vec![I::max_value(); num_bidders];
-        let mut bids = vec![Float::NEG_INFINITY; num_bidders];
+
+        self.bidders.clear();
+        self.bidders.resize(num_bidders, I::max_value());
+        self.objects_bidded.clear();
+        self.objects_bidded.resize(num_bidders, I::max_value());
+        self.bids.clear();
+        self.bids.resize(num_bidders, Float::NEG_INFINITY);
 
         // BIDDING PHASE
         // each person now makes a bid:
-        bidders
-            .iter_mut()
-            .enumerate()
-            .for_each(|(nbidder, bidder_refmut)| {
-                let i: I = self.unassigned_people[nbidder];
-                let i_usize: usize = i.as_();
-                let num_objects_i: I = self.j_counts[i_usize];
-                let num_objects = num_objects_i.as_(); // the number of objects this person is able to bid on
-                let start_i: I = self.i_starts_stops[i_usize];
-                let start: usize = start_i.as_(); // in flattened index format, the starting index of this person's objects/values
-                                                  // initially 0 object is considered the best
-                let mut jbest: I = self.column_indices[start];
-                let mut costbest = self.values[start];
-                // best net reword
-                let jbest_usize: usize = jbest.as_();
-                let mut vbest = costbest - self.prices[jbest_usize];
-                // second best net reword
-                let mut wi = Float::NEG_INFINITY; //0.;
-                                                  // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
-                for idx in 1..num_objects {
-                    let glob_idx = start + idx;
-                    let j: I = self.column_indices[glob_idx];
-                    let j_usize: usize = j.as_();
-                    let cost = self.values[glob_idx];
-                    let vi = cost - self.prices[j_usize];
-                    if vi > vbest {
-                        // if best so far (or first entry)
-                        jbest = j;
-                        wi = vbest; // store current vbest as second best, wi
-                        vbest = vi;
-                        costbest = cost;
-                    } else if vi > wi {
-                        wi = vi;
-                    }
+        (0..num_bidders).for_each(|nbidder| {
+            let i: I = self.unassigned_people[nbidder];
+            let i_usize: usize = i.as_();
+            let num_objects_i: I = self.j_counts[i_usize];
+            let num_objects = num_objects_i.as_(); // the number of objects this person is able to bid on
+
+            let start_i: I = self.i_starts_stops[i_usize];
+            let start: usize = start_i.as_(); // in flattened index format, the starting index of this person's objects/values
+                                              // initially 0 object is considered the best
+            let mut jbest: I = self.column_indices[start];
+            let mut costbest = self.values[start];
+            // best net reword
+            let jbest_usize: usize = jbest.as_();
+            let mut vbest = costbest - self.prices[jbest_usize];
+            // second best net reword
+            let mut wi = Float::NEG_INFINITY; //0.;
+                                              // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
+            for idx in 1..num_objects {
+                let glob_idx = start + idx;
+                let j: I = self.column_indices[glob_idx];
+                let j_usize: usize = j.as_();
+                let cost = self.values[glob_idx];
+                let vi = cost - self.prices[j_usize];
+                if vi > vbest {
+                    // if best so far (or first entry)
+                    jbest = j;
+                    wi = vbest; // store current vbest as second best, wi
+                    vbest = vi;
+                    costbest = cost;
+                } else if vi > wi {
+                    wi = vi;
                 }
+            }
 
-                let bbest = costbest - wi + solution.eps; // value of new bid
+            let bbest = costbest - wi + solution.eps; // value of new bid
 
-                // store bid & its value
-                *bidder_refmut = i;
-                bids[nbidder] = bbest;
-                objects_bidded[nbidder] = jbest
-            });
+            // store bid & its value
+            self.bidders[nbidder] = i;
+            self.bids[nbidder] = bbest;
+            self.objects_bidded[nbidder] = jbest
+        });
 
         let mut num_successful_bids = 0; // counter of how many succesful bids
 
-        objects_bidded.iter().enumerate().for_each(|(n, jbid_ref)| {
+        (0..num_bidders).for_each(|n| {
             // for each bid made,
-            let i = bidders[n]; // bidder
-            let bid_val = bids[n]; // value
-            let jbid_i: I = *jbid_ref;
+            let i = self.bidders[n]; // bidder
+            let bid_val = self.bids[n]; // value
+            let jbid_i: I = self.objects_bidded[n];
             let jbid: usize = jbid_i.as_(); // object
             if bid_val > self.best_bids[jbid] {
                 // if beats current best bid for this object
@@ -662,6 +678,81 @@ mod tests {
         assert!(solution.optimal_soln_found);
         assert!(solution.num_unassigned == 0);
         trace!("{:?}", solution);
+        Ok(())
+    }
+    #[test]
+    fn test_fixed_cases() -> Result<(), Box<dyn std::error::Error>> {
+        init();
+        // taken from https://github.com/gatagat/lap/blob/master/lap/tests/test_lapjv.py
+        let cases = [
+            (
+                false,
+                vec![
+                    vec![1000, 2, 11, 10, 8, 7, 6, 5],
+                    vec![6, 1000, 1, 8, 8, 4, 6, 7],
+                    vec![5, 12, 1000, 11, 8, 12, 3, 11],
+                    vec![11, 9, 10, 1000, 1, 9, 8, 10],
+                    vec![11, 11, 9, 4, 1000, 2, 10, 9],
+                    vec![12, 8, 5, 2, 11, 1000, 11, 9],
+                    vec![10, 11, 12, 10, 9, 12, 1000, 3],
+                    vec![10, 10, 10, 10, 6, 3, 1, 1000],
+                ],
+                (
+                    17.0,
+                    vec![1, 2, 0, 4, 5, 3, 7, 6],
+                    vec![2, 0, 1, 5, 3, 4, 7, 6],
+                ),
+            ),
+            (
+                false,
+                vec![vec![10, 10, 13], vec![4, 8, 8], vec![8, 5, 8]],
+                (13.0 + 4.0 + 5.0, vec![1, 0, 2], vec![1, 0, 2]),
+            ),
+        ];
+
+        let (mut solver, mut solution) = AuctionSolver::new(10, 10, 100);
+
+        for (maximize, costs, (optimal_cost, person_to_object, object_to_person)) in cases.iter() {
+            let num_rows = costs.len();
+            let num_cols = costs[0].len();
+            let cost_multiplier = if *maximize { 1. } else { -1. };
+
+            solver.init(num_rows as u32, num_cols as u32, None).unwrap();
+            (0..costs.len() as u32)
+                .zip(costs.iter())
+                .for_each(|(i, row_ref)| {
+                    let i_indices = std::iter::repeat(i)
+                        .take(row_ref.len())
+                        .collect::<Vec<u32>>();
+                    let j_indices = (0..row_ref.len() as u32).collect::<Vec<_>>();
+                    let values = row_ref
+                        .iter()
+                        .map(|v| ((*v) as Float) * cost_multiplier)
+                        .collect::<Vec<_>>();
+                    solver.extend_from_values(
+                        i_indices.as_slice(),
+                        j_indices.as_slice(),
+                        values.as_slice(),
+                    );
+                });
+            solver.solve(&mut solution).unwrap();
+            trace!("{:?}", solution);
+            assert!(solution.optimal_soln_found);
+            assert!(solution.num_unassigned == 0);
+            assert_eq!(
+                solver.get_objective(&solution) * cost_multiplier,
+                *optimal_cost
+            );
+            assert_eq!(
+                solution.person_to_object, *person_to_object,
+                "person_to_object"
+            );
+            assert_eq!(
+                solution.object_to_person, *object_to_person,
+                "object_to_person"
+            );
+        }
+
         Ok(())
     }
 }
