@@ -97,7 +97,7 @@ fn bench_symmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt
                 b.iter_batched(
                     || input.clone(),
                     |(mut solver, mut solution)| {
-                        solver.solve(&mut solution).unwrap();
+                        solver.solve(&mut solution, true, None).unwrap();
                         if !solution.optimal_soln_found {
                             println!(
                                 "not optimal: nits {}, nreductions {}, num_unassigned {}, {}",
@@ -143,10 +143,10 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
             group.throughput(Throughput::Elements(solver.num_of_arcs() as u64));
             group.sampling_mode(SamplingMode::Flat);
             let benchmark_id = BenchmarkId::new(
-                format!("num_of_people {}", num_of_people),
+                "classic",
                 format!(
-                    "num_of_objects {}, arcs_per_person {}",
-                    num_of_objects, arcs_per_person
+                    "num_of_people {}, num_of_objects {}, arcs_per_person {}",
+                    num_of_people, num_of_objects, arcs_per_person
                 ),
             );
             let input = (solver.clone(), solution.clone());
@@ -154,7 +154,7 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
                 b.iter_batched(
                     || input.clone(),
                     |(mut solver, mut solution)| {
-                        solver.solve(&mut solution).unwrap();
+                        solver.solve(&mut solution, false, None).unwrap();
                         if !solution.optimal_soln_found {
                             println!(
                                 "not optimal: nits {}, nreductions {}, num_unassigned {}, {}",
@@ -165,6 +165,23 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
                                     == num_of_people as UInt
                             )
                         }
+                    },
+                    BatchSize::SmallInput,
+                );
+            });
+            let input = (solver.clone(), solution.clone());
+            let benchmark_id_imporoved = BenchmarkId::new(
+                "improved",
+                format!(
+                    "num_of_people {}, num_of_objects {}, arcs_per_person {}",
+                    num_of_people, num_of_objects, arcs_per_person
+                ),
+            );
+            group.bench_with_input(benchmark_id_imporoved, &input, |b, input| {
+                b.iter_batched(
+                    || input.clone(),
+                    |(mut solver, mut solution)| {
+                        solver.solve_approx(&mut solution, None).unwrap();
                     },
                     BatchSize::SmallInput,
                 );
