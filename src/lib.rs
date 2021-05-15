@@ -47,6 +47,7 @@ where
     }
 }
 
+/// Solution of the linear assignment problem
 #[derive(Debug, Clone)]
 pub struct AuctionSolution<I>
 where
@@ -70,6 +71,31 @@ where
     pub optimal_soln_found: bool,
     pub num_assigned: I,
     pub num_unassigned: I,
+}
+
+impl<I> AuctionSolution<I>
+where
+    I: PrimInt
+        + Unsigned
+        + Display
+        + Debug
+        + AsPrimitive<usize>
+        + AsPrimitive<Float>
+        + FromPrimitive
+        + NumAssign,
+{
+    pub fn new(row_capacity: usize, column_capacity: usize) -> AuctionSolution<I> {
+        AuctionSolution::<I> {
+            person_to_object: Vec::with_capacity(row_capacity),
+            object_to_person: Vec::with_capacity(column_capacity),
+            eps: Float::NAN,
+            nits: 0,
+            nreductions: 0,
+            optimal_soln_found: false,
+            num_assigned: I::zero(),
+            num_unassigned: I::max_value(),
+        }
+    }
 }
 
 /// Solver for auction problem
@@ -150,16 +176,7 @@ where
                 unassigned_people: Vec::with_capacity(row_capacity),
                 person_to_assignment_idx: Vec::with_capacity(row_capacity),
             },
-            AuctionSolution::<I> {
-                person_to_object: Vec::with_capacity(row_capacity),
-                object_to_person: Vec::with_capacity(column_capacity),
-                eps: Float::NAN,
-                nits: 0,
-                nreductions: 0,
-                optimal_soln_found: false,
-                num_assigned: I::zero(),
-                num_unassigned: I::max_value(),
-            },
+            AuctionSolution::<I>::new(row_capacity, column_capacity),
         )
     }
     #[inline]
@@ -306,7 +323,9 @@ where
             .expect("values should not be empty")
             .abs();
         trace!("c: {}", c);
-
+        let toleration: Float =
+            1.0 / 2_u64.pow(Float::MANTISSA_DIGITS - (c + 1e-7).log2() as u32) as Float;
+        trace!("toleration: {:e}", toleration);
         let start_eps = c / 2.0;
         solution.eps = start_eps;
         solution.nits = 0;
@@ -321,7 +340,7 @@ where
             solution.nits += 1;
 
             let is_optimal = (solution.num_unassigned == I::zero())
-                && self.ece_satisfied(solution.person_to_object.as_slice());
+                && self.ecs_satisfied(solution.person_to_object.as_slice(), toleration);
             if is_optimal {
                 solution.optimal_soln_found = true;
                 break;
@@ -534,15 +553,13 @@ where
         return obj;
     }
 
-    const TOLERATION: Float = if Float::DIGITS == 6 { 1.0e-7 } else { 1.0e-15 };
-
     /// Checks if current solution is a complete solution that satisfies eps-complementary slackness.
     ///
     /// As eps-complementary slackness is preserved through each iteration, and we start with an empty set,
     /// it is true that any solution satisfies eps-complementary slackness. Will add a check to be sure
     /// Returns True if eps-complementary slackness condition is satisfied
-    /// e-CE: for k (all valid j for a given i), max (a_ik - p_k) - eps <= a_ij - p_j
-    fn ece_satisfied(&self, person_to_object: &[I]) -> bool {
+    /// e-CS: for k (all valid j for a given i), max (a_ik - p_k) - eps <= a_ij - p_j
+    fn ecs_satisfied(&self, person_to_object: &[I], toleration: Float) -> bool {
         for i in num_iter::range(I::zero(), self.num_rows) {
             let i_usize: usize = i.as_();
             let num_objects = self.j_counts[i_usize]; // the number of objects this person is able to bid on
@@ -562,21 +579,21 @@ where
 
             //  k are all possible biddable objects.
             // Go through each, asserting that (a_ij - p_j) + tol >= max(a_ik - p_k) - eps for all k
-            // tolerance to deal with floating point precision for eCE, due to eps being stored as float 32
+            // tolerance to deal with floating point precision for eCS, due to eps being stored as float
             let j_usize: usize = j.as_();
-            let lhs: Float = choice_cost - self.prices[j_usize] + Self::TOLERATION; // left hand side of inequality
+            let lhs: Float = choice_cost - self.prices[j_usize] + toleration; // left hand side of inequality
 
             for idx in num_iter::range(I::zero(), num_objects) {
                 let glob_idx: usize = (start + idx).as_();
                 let k: usize = self.column_indices[glob_idx].as_();
                 let cost: Float = self.values[glob_idx];
                 if lhs < cost - self.prices[k] - self.target_eps {
-                    trace!("ECE CONDITION is not met");
-                    return false; // The eCE condition is not met.
+                    trace!("ECS CONDITION is not met");
+                    return false;
                 }
             }
         }
-        trace!("ECE CONDITION met");
+        trace!("ECS CONDITION met");
         true
     }
 }
