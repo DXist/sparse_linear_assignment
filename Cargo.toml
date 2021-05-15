@@ -1,5 +1,5 @@
 [package]
-name = "sslap"
+name = "sparse_linear_assignment"
 version = "0.1.0"
 authors = ["Rinat Shigapov <rinatshigapov@gmail.com>"]
 edition = "2018"

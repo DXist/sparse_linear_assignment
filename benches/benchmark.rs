@@ -7,7 +7,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rand_distr::Beta;
 use reservoir_sampling::unweighted::core::r as reservoir_sample;
-use sslap::{AuctionSolver, Float};
+use sparse_linear_assignment::{AuctionSolver, Float};
 
 type UInt = u32;
 
