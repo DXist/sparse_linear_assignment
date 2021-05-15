@@ -8,46 +8,7 @@ use num_traits::{AsPrimitive, FromPrimitive, NumAssign, PrimInt, Unsigned};
 use std::fmt::{Debug, Display};
 pub type Float = f64;
 
-fn push_all_left<I>(data: &mut [I], mapper: &mut [I], num_ints: I, size: I)
-where
-    I: PrimInt + Unsigned + AsPrimitive<usize> + FromPrimitive + NumAssign,
-{
-    // Given an array of valid positive integers (size <size>) and NONEs (I::MAX), arrange so that all valid positive integers are at the start of the array.
-    // Provided with N (number of valid positive integers) for speed increase.
-    // eg [4294967295, 1, 2, 3, 4294967295, 4294967295] -> [3, 1, 2, 4294967295, 4294967295, 4294967295] (order not important).
-    // Also updates mapper in tandem, a 1d array in which the ith idx gives the position of integer i in the array data.
-    // All modifications are inplace.
-
-    if num_ints.is_zero() {
-        return;
-    }
-
-    let mut left_track = I::zero(); // cursor on left hand side of partition
-    let mut right_track = num_ints; // cursor on right hand side of partition
-
-    while left_track < num_ints {
-        // keep going until found all N components
-        let left_track_usize = left_track.as_();
-        if data[left_track_usize] == I::max_value() {
-            // if empty space
-            // move through right track until hit a valid positive integer (or the end of the array)
-            while data[right_track.as_()] == I::max_value() && right_track < size {
-                right_track += I::one();
-            }
-
-            let right_track_usize = right_track.as_();
-            // swap two elements
-            let i = data[right_track_usize]; // integer taken through
-            data[left_track_usize] = i;
-            data[right_track_usize] = I::max_value();
-            mapper[i.as_()] = left_track;
-        }
-
-        left_track += I::one();
-    }
-}
-
-/// Solution of the linear assignment problem
+/// Solution of the linear assignment problem found by AuctionSolver
 #[derive(Debug, Clone)]
 pub struct AuctionSolution<I>
 where
@@ -595,6 +556,45 @@ where
         }
         trace!("ECS CONDITION met");
         true
+    }
+}
+
+fn push_all_left<I>(data: &mut [I], mapper: &mut [I], num_ints: I, size: I)
+where
+    I: PrimInt + Unsigned + AsPrimitive<usize> + FromPrimitive + NumAssign,
+{
+    // Given an array of valid positive integers (size <size>) and NONEs (I::MAX), arrange so that all valid positive integers are at the start of the array.
+    // Provided with N (number of valid positive integers) for speed increase.
+    // eg [4294967295, 1, 2, 3, 4294967295, 4294967295] -> [3, 1, 2, 4294967295, 4294967295, 4294967295] (order not important).
+    // Also updates mapper in tandem, a 1d array in which the ith idx gives the position of integer i in the array data.
+    // All modifications are inplace.
+
+    if num_ints.is_zero() {
+        return;
+    }
+
+    let mut left_track = I::zero(); // cursor on left hand side of partition
+    let mut right_track = num_ints; // cursor on right hand side of partition
+
+    while left_track < num_ints {
+        // keep going until found all N components
+        let left_track_usize = left_track.as_();
+        if data[left_track_usize] == I::max_value() {
+            // if empty space
+            // move through right track until hit a valid positive integer (or the end of the array)
+            while data[right_track.as_()] == I::max_value() && right_track < size {
+                right_track += I::one();
+            }
+
+            let right_track_usize = right_track.as_();
+            // swap two elements
+            let i = data[right_track_usize]; // integer taken through
+            data[left_track_usize] = i;
+            data[right_track_usize] = I::max_value();
+            mapper[i.as_()] = left_track;
+        }
+
+        left_track += I::one();
     }
 }
 
