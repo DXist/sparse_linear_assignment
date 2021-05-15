@@ -213,7 +213,7 @@ where
     pub fn add_value(&mut self, row: I, column: I, value: Float) -> Result<(), anyhow::Error> {
         let current_row = self.j_counts.len() - 1;
         let row_usize: usize = row.as_();
-        debug_assert!(row_usize == current_row || row_usize == current_row + 1);
+        ensure!(row_usize == current_row || row_usize == current_row + 1);
 
         let cumulative_offset = self.i_starts_stops[current_row + 1]
             .checked_add(&I::one())
@@ -242,10 +242,10 @@ where
         columns: &[I],
         values: &[Float],
     ) -> Result<(), anyhow::Error> {
-        debug_assert!(columns.len() == values.len());
+        ensure!(columns.len() == values.len());
         let current_row = self.j_counts.len() - 1;
         let row_usize: usize = row.as_();
-        debug_assert!(row_usize == current_row || row_usize == current_row + 1);
+        ensure!(row_usize == current_row || row_usize == current_row + 1);
 
         let length_increment = I::from_usize(columns.len())
             .ok_or_else(|| anyhow_error!(" columns slice is longer then max value of type"))?;
@@ -268,6 +268,7 @@ where
         Ok(())
     }
 
+    #[inline]
     pub fn num_of_arcs(&self) -> usize {
         self.column_indices.len()
     }
@@ -507,7 +508,7 @@ where
         trace!("prices: {:?}", self.prices);
     }
     /// Returns current objective value of assignments
-    fn get_objective(&self, solution: &AuctionSolution<I>) -> Float {
+    pub fn get_objective(&self, solution: &AuctionSolution<I>) -> Float {
         let mut obj = 0.;
         for i in num_iter::range(I::zero(), self.num_rows) {
             // due to the way data is stored, need to go do some searching to find the corresponding value
