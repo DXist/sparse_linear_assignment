@@ -30,7 +30,7 @@ fn gen_symmetric_input(
     let mut ensured_i_to_j = (0..size).collect::<Vec<UInt>>();
     ensured_i_to_j.as_mut_slice().shuffle(&mut filter_rng);
 
-    solver.init(size, size, None).unwrap();
+    solver.init(size, size, None, None).unwrap();
     (0..size)
         .flat_map(|i| (0..size).map(move |j| (i, j)))
         .for_each(|(i, j)| {
@@ -57,7 +57,9 @@ fn gen_asymmetric_input(
     let mut filter_rng = ChaCha8Rng::seed_from_u64(seed + 1);
     let beta = Beta::new(3.0, 3.0).unwrap();
 
-    solver.init(num_of_people, num_of_objects, None).unwrap();
+    solver
+        .init(num_of_people, num_of_objects, None, None)
+        .unwrap();
     (0..num_of_people)
         .map(|i| {
             let mut j_samples = vec![0; arcs_per_person as usize];
@@ -77,7 +79,7 @@ fn gen_asymmetric_input(
 }
 
 fn bench_symmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt, max_size: UInt) {
-    let mut group = c.benchmark_group("symmetric_group");
+    let mut group = c.benchmark_group("symmetric_random_degree");
     let (mut solver, solution) = AuctionSolver::new(
         max_size as usize,
         max_size as usize,
@@ -90,21 +92,37 @@ fn bench_symmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt
             group.sample_size(10);
             group.sampling_mode(SamplingMode::Flat);
             let benchmark_id =
-                BenchmarkId::new(format!("density {}", density), format!("size {}", size));
+                BenchmarkId::new("forward", format!("density {} size {}", density, size));
             let input = (solver.clone(), solution.clone());
 
             group.bench_with_input(benchmark_id, &input, |b, input| {
                 b.iter_batched(
                     || input.clone(),
                     |(mut solver, mut solution)| {
-                        solver.solve(&mut solution, true, None).unwrap();
-                        if !solution.optimal_soln_found {
+                        solver.solve(&mut solution, false, None).unwrap();
+                        if solution.num_unassigned != 0 {
                             println!(
-                                "not optimal: nits {}, nreductions {}, num_unassigned {}, {}",
-                                solution.nits,
-                                solution.nreductions,
-                                solution.num_unassigned,
-                                solution.num_unassigned + solution.num_assigned == size as UInt
+                                "not optimal: nits {}, nreductions {}, num_unassigned {}",
+                                solution.nits, solution.nreductions, solution.num_unassigned,
+                            )
+                        }
+                    },
+                    BatchSize::LargeInput,
+                );
+            });
+            let benchmark_id =
+                BenchmarkId::new("khosla", format!("density {} size {}", density, size));
+            let input = (solver.clone(), solution.clone());
+
+            group.bench_with_input(benchmark_id, &input, |b, input| {
+                b.iter_batched(
+                    || input.clone(),
+                    |(mut solver, mut solution)| {
+                        solver.solve_approx(&mut solution, false, None).unwrap();
+                        if solution.num_unassigned != 0 {
+                            println!(
+                                "not optimal: nits {}, nreductions {}, num_unassigned {}",
+                                solution.nits, solution.nreductions, solution.num_unassigned,
                             )
                         }
                     },
@@ -121,7 +139,7 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
     max_num_of_people: UInt,
     max_arcs_per_person: UInt,
 ) {
-    let mut group = c.benchmark_group("asymmetric");
+    let mut group = c.benchmark_group("asymmetric_ksparse");
     let num_of_objects = 60000;
     let (mut solver, solution) = AuctionSolver::new(
         max_num_of_people as usize,
@@ -157,12 +175,8 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
                         solver.solve(&mut solution, false, None).unwrap();
                         if !solution.optimal_soln_found {
                             println!(
-                                "not optimal: nits {}, nreductions {}, num_unassigned {}, {}",
-                                solution.nits,
-                                solution.nreductions,
-                                solution.num_unassigned,
-                                solution.num_unassigned + solution.num_assigned
-                                    == num_of_people as UInt
+                                "not optimal: nits {}, nreductions {}, num_unassigned {}",
+                                solution.nits, solution.nreductions, solution.num_unassigned,
                             )
                         }
                     },
@@ -181,7 +195,13 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
                 b.iter_batched(
                     || input.clone(),
                     |(mut solver, mut solution)| {
-                        solver.solve_approx(&mut solution, None).unwrap();
+                        solver.solve_approx(&mut solution, false, None).unwrap();
+                        if solution.num_unassigned != 0 {
+                            println!(
+                                "not optimal: nits {}, nreductions {}, num_unassigned {}",
+                                solution.nits, solution.nreductions, solution.num_unassigned,
+                            )
+                        }
                     },
                     BatchSize::SmallInput,
                 );
@@ -195,13 +215,13 @@ fn bench_symmetric_density_1_size_10000(c: &mut Criterion) {
     bench_symmetric_density_and_size(c, 1, 10000)
 }
 
-fn bench_asymmetric_num_of_people_2000_arcs_per_person_16(c: &mut Criterion) {
+fn bench_asymmetric_num_of_people_2000_arcs_per_person_32(c: &mut Criterion) {
     bench_asymmetric_num_of_people_and_arcs_per_person(c, 2000, 32)
 }
 
 criterion_group!(
     benches,
     bench_symmetric_density_1_size_10000,
-    bench_asymmetric_num_of_people_2000_arcs_per_person_16
+    bench_asymmetric_num_of_people_2000_arcs_per_person_32
 );
 criterion_main!(benches);
