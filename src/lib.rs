@@ -159,9 +159,6 @@ where
         self.j_counts.clear();
         self.j_counts.push(I::zero());
 
-        let num_cols_usize: usize = num_cols.as_();
-        self.prices.clear();
-        self.prices.resize(num_cols_usize, 0.);
         self.column_indices.clear();
         self.values.clear();
 
@@ -178,21 +175,6 @@ where
         } else {
             Self::MAX_ITERATIONS
         };
-
-        self.best_bids.clear();
-        self.best_bids.resize(num_cols_usize, Float::NEG_INFINITY);
-        self.best_bidders.clear();
-        self.best_bidders.resize(num_cols_usize, I::max_value());
-
-        self.unassigned_people.clear();
-        let num_rows_usize = num_rows.as_();
-        let mut range = num_iter::range(I::zero(), num_rows);
-        self.unassigned_people
-            .resize_with(num_rows_usize, || range.next().unwrap());
-        let mut range = num_iter::range(I::zero(), num_rows);
-        self.person_to_assignment_idx.clear();
-        self.person_to_assignment_idx
-            .resize_with(num_rows_usize, || range.next().unwrap());
         Ok(())
     }
 
@@ -277,6 +259,25 @@ where
         Ok(())
     }
 
+    fn init_solve(&mut self) {
+        let num_cols_usize: usize = self.num_cols.as_();
+        self.prices.clear();
+        self.prices.resize(num_cols_usize, 0.);
+        self.best_bids.clear();
+        self.best_bids.resize(num_cols_usize, Float::NEG_INFINITY);
+        self.best_bidders.clear();
+        self.best_bidders.resize(num_cols_usize, I::max_value());
+
+        self.unassigned_people.clear();
+        let num_rows_usize = self.num_rows.as_();
+        let mut range = num_iter::range(I::zero(), self.num_rows);
+        self.unassigned_people
+            .resize_with(num_rows_usize, || range.next().unwrap());
+        let mut range = num_iter::range(I::zero(), self.num_rows);
+        self.person_to_assignment_idx.clear();
+        self.person_to_assignment_idx
+            .resize_with(num_rows_usize, || range.next().unwrap());
+    }
     #[inline]
     pub fn solve(
         &mut self,
@@ -285,8 +286,14 @@ where
         start_eps: Option<Float>,
     ) -> Result<(), anyhow::Error> {
         self.validate_input()?;
+        self.init_solve();
 
-        if maximize {
+        let positive_values = if *self.values.get(0).unwrap_or(&0.0) >= 0. {
+            true
+        } else {
+            false
+        };
+        if maximize ^ positive_values {
             self.values.iter_mut().for_each(|v_ref| *v_ref *= -1.);
         }
 
@@ -404,9 +411,14 @@ where
     ) -> Result<(), anyhow::Error> {
         self.validate_input()?;
 
-        // if maximize {
-        //     self.values.iter_mut().for_each(|v_ref| *v_ref *= -1.);
-        // }
+        let positive_values = if *self.values.get(0).unwrap_or(&0.0) >= 0. {
+            true
+        } else {
+            false
+        };
+        if maximize ^ positive_values {
+            self.values.iter_mut().for_each(|v_ref| *v_ref *= -1.);
+        }
 
         let num_cols_f: Float = self.num_cols.as_();
         let eps = if let Some(eps) = eps {
@@ -415,6 +427,8 @@ where
             1.0 / num_cols_f
         };
 
+        self.prices.clear();
+        self.prices.resize(self.num_cols.as_(), 0.);
         solution.person_to_object.clear();
         solution
             .person_to_object
@@ -452,33 +466,33 @@ where
             trace!("APPROX prices {:?}", self.prices);
             let start: usize = self.i_starts_stops[u].as_();
             let num_of_u_objects: usize = self.j_counts[u].as_();
-            let mut min_new_price = Float::INFINITY;
-            let mut min_edge_cost = Float::INFINITY;
+            let mut max_profit = Float::NEG_INFINITY;
+            let mut max_edge_value = Float::NEG_INFINITY;
             let mut matched_v_i: I = I::zero();
 
-            let mut second_min_new_price = Float::INFINITY;
+            let mut second_max_profit = Float::NEG_INFINITY;
 
             // choice rule
             for idx in 0..num_of_u_objects {
                 let glob_idx = start + idx;
                 let j: I = self.column_indices[glob_idx];
                 let j_usize: usize = j.as_();
-                let edge_cost = self.values[glob_idx];
-                let new_price = edge_cost + self.prices[j_usize];
-                if new_price < min_new_price {
+                let edge_value = self.values[glob_idx];
+                let profit = edge_value - self.prices[j_usize];
+                if profit > max_profit {
                     matched_v_i = j;
-                    second_min_new_price = min_new_price;
-                    min_new_price = new_price;
-                    min_edge_cost = edge_cost;
-                } else if new_price < second_min_new_price {
-                    second_min_new_price = new_price;
+                    second_max_profit = max_profit;
+                    max_profit = profit;
+                    max_edge_value = edge_value;
+                } else if profit > second_max_profit {
+                    second_max_profit = profit;
                 }
             }
             let matched_v: usize = matched_v_i.as_();
             trace!(
-                "APPROX: matched_v: {}, min_new_price: {}",
+                "APPROX: matched_v: {}, max_profit: {}",
                 matched_v,
-                min_new_price
+                max_profit
             );
 
             if self.prices[matched_v] > price_threshold {
@@ -486,8 +500,8 @@ where
             }
 
             // update rule
-            if second_min_new_price.is_finite() {
-                self.prices[matched_v] = second_min_new_price - min_edge_cost + eps;
+            if second_max_profit.is_finite() {
+                self.prices[matched_v] = max_edge_value - second_max_profit + eps;
             } else {
                 self.prices[matched_v] += eps;
             }
@@ -512,6 +526,7 @@ where
         trace!("APPROX OBJECTIVE: {:?}", self.get_objective(solution));
         trace!("APPROX person_to_object: {:?}", solution.person_to_object);
         trace!("APPROX prices: {:?}", self.prices);
+
         Ok(())
     }
 
@@ -536,30 +551,30 @@ where
                 let start: usize = start_i.as_(); // in flattened index format, the starting index of this person's objects/values
                                                   // initially 0 object is considered the best
                 let mut jbest = I::zero();
-                let mut costbest = Float::INFINITY;
+                let mut max_edge_value = Float::NEG_INFINITY;
                 // best net reword
-                let mut vbest = Float::INFINITY;
+                let mut max_profit = Float::NEG_INFINITY;
                 // second best net reword
-                let mut vsecond_best = Float::INFINITY; //0.;
-                                                        // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
+                let mut second_max_profit = Float::NEG_INFINITY;
+                // Go through each object, storing its index & cost if vi is largest, and value if vi is second largest
                 for idx in 0..num_objects {
                     let glob_idx = start + idx;
                     let j: I = self.column_indices[glob_idx];
                     let j_usize: usize = j.as_();
-                    let cost = self.values[glob_idx];
-                    let vi = cost + self.prices[j_usize];
-                    if vi < vbest {
+                    let edge_value = self.values[glob_idx];
+                    let profit = edge_value - self.prices[j_usize];
+                    if profit > max_profit {
                         // if best so far (or first entry)
                         jbest = j;
-                        vsecond_best = vbest; // store current vbest as second best, wi
-                        vbest = vi;
-                        costbest = cost;
-                    } else if vi < vsecond_best {
-                        vsecond_best = vi;
+                        second_max_profit = max_profit; // store current vbest as second best, wi
+                        max_profit = profit;
+                        max_edge_value = edge_value;
+                    } else if profit > second_max_profit {
+                        second_max_profit = profit;
                     }
                 }
 
-                let bbest = vsecond_best - costbest + solution.eps; // value of new bid
+                let bbest = max_edge_value - second_max_profit + solution.eps; // value of new bid
 
                 // store bid & its value
                 *bidder_refmut = i;
@@ -695,7 +710,7 @@ where
     /// As eps-complementary slackness is preserved through each iteration, and we start with an empty set,
     /// it is true that any solution satisfies eps-complementary slackness. Will add a check to be sure
     /// Returns True if eps-complementary slackness condition is satisfied
-    /// e-CS: for k (all valid j for a given i), min (a_ik + p_k) + eps >= a_ij + p_j
+    /// e-CS: for k (all valid j for a given i), max (a_ik - p_k) - eps <= a_ij - p_j
     fn ecs_satisfied(&self, person_to_object: &[I], toleration: Float) -> bool {
         for i in num_iter::range(I::zero(), self.num_rows) {
             let i_usize: usize = i.as_();
@@ -704,27 +719,26 @@ where
             let start = self.i_starts_stops[i_usize]; // in flattened index format, the starting index of this person's objects/values
             let j = person_to_object[i_usize]; // chosen object
 
-            let mut choice_cost = Float::NEG_INFINITY;
-            // first, get cost of choice j
+            let mut chosen_value = Float::NEG_INFINITY;
             for idx in num_iter::range(I::zero(), num_objects) {
                 let glob_idx: usize = (start + idx).as_();
                 let l: I = self.column_indices[glob_idx];
                 if l == j {
-                    choice_cost = self.values[glob_idx];
+                    chosen_value = self.values[glob_idx];
                 }
             }
 
             //  k are all possible biddable objects.
-            // Go through each, asserting that min(a_ik + p_k) + eps >= (a_ij + p_j) - tol for all k.
+            // Go through each, asserting that max(a_ik - p_k) - eps <= (a_ij - p_j) + tol for all k.
             // Tolerance is added to deal with floating point precision for eCS, due to eps being stored as float
             let j_usize: usize = j.as_();
-            let lhs: Float = choice_cost + self.prices[j_usize] - toleration; // left hand side of inequality
+            let lhs: Float = chosen_value - self.prices[j_usize] + toleration; // left hand side of inequality
 
             for idx in num_iter::range(I::zero(), num_objects) {
                 let glob_idx: usize = (start + idx).as_();
                 let k: usize = self.column_indices[glob_idx].as_();
-                let cost: Float = self.values[glob_idx];
-                if lhs > cost + self.prices[k] + self.target_eps {
+                let value: Float = self.values[glob_idx];
+                if lhs < value - self.prices[k] - self.target_eps {
                     trace!("ECS CONDITION is not met");
                     return false;
                 }
@@ -863,8 +877,16 @@ mod tests {
             let approx_objective = solver.get_objective(&approx_solution);
             solver.solve(&mut solution, *maximize, None).unwrap();
             assert_eq!(approx_objective, solver.get_objective(&solution));
-            debug!("approx {:?}", approx_solution);
-            debug!("auction {:?}", solution);
+            debug!(
+                "approx objective {}, {:?}",
+                solver.get_objective(&approx_solution),
+                approx_solution
+            );
+            debug!(
+                "auction objective {}, {:?}",
+                solver.get_objective(&solution),
+                solution
+            );
             assert_eq!(solution.num_unassigned, 0);
             assert_eq!(approx_solution.num_unassigned, 0);
         }
@@ -1046,9 +1068,9 @@ mod tests {
 
             solver.solve(&mut solution, *maximize, None).unwrap();
             trace!("exact {:?}", solution);
-            assert!(solution.optimal_soln_found);
-            assert!(solution.num_unassigned == 0);
+            assert_eq!(solution.num_unassigned, 0);
             assert_eq!(solver.get_objective(&solution), *optimal_cost);
+            assert!(solution.optimal_soln_found);
             assert_eq!(
                 solution.person_to_object, *person_to_object,
                 "person_to_object"
