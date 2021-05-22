@@ -1,12 +1,10 @@
-#![feature(array_methods, array_map, is_sorted, total_cmp)]
 use anyhow;
 use anyhow::{anyhow as anyhow_error, ensure, Result};
-use log;
-use log::{info, trace};
 use num_integer::Integer;
 use num_iter;
 use num_traits::{AsPrimitive, FromPrimitive, NumAssign, PrimInt, Unsigned};
 use std::fmt::{Debug, Display};
+use tracing::{info, trace};
 pub type Float = f64;
 
 /// Solution of the linear assignment problem found by AuctionSolver
@@ -107,12 +105,7 @@ where
         + Integer,
 {
     const REDUCTION_FACTOR: Float = 0.15;
-    const MAX_ITERATIONS: u32 =
-        if log::STATIC_MAX_LEVEL as usize == log::LevelFilter::Trace as usize {
-            100
-        } else {
-            10u32.pow(6)
-        };
+    const MAX_ITERATIONS: u32 = 100000;
 
     pub fn new(
         row_capacity: usize,
@@ -310,12 +303,7 @@ where
         // choose eps values
         // Calculate optimum initial eps and target eps
         // C = max |aij| for all i, j in A(i)
-        let c = self
-            .values
-            .iter()
-            .max_by(|x, y| x.abs().total_cmp(&y.abs()))
-            .expect("values should not be empty")
-            .abs();
+        let c = self.values.iter().fold(0_f64, |acc, x| acc.max(x.abs()));
         trace!("c: {}", c);
         let toleration = self.get_toleration(c);
         trace!("toleration: {:e}", toleration);
@@ -791,12 +779,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::{push_all_left, AuctionSolution, AuctionSolver, Float};
-    use env_logger;
-    use log::{debug, trace};
     use rand::distributions::{Distribution, Uniform};
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
     use reservoir_sampling::unweighted::core::r as reservoir_sample;
+    use test_env_log::test;
+    use tracing::{debug, trace};
 
     #[test]
     fn test_cumulative_idx_diff() {
@@ -818,9 +806,6 @@ mod tests {
         let mut mapper = [NONE, 1, 2, 3];
         push_all_left::<u16>(&mut arr, &mut mapper, 3, 3);
         assert_eq!(arr, [3, 1, 2, NONE, NONE, NONE]);
-    }
-    fn init() {
-        let _ = env_logger::builder().is_test(true).try_init();
     }
 
     fn solver_with_ksparse_input(
@@ -865,7 +850,6 @@ mod tests {
 
     #[test]
     fn test_random_solve_small() -> Result<(), Box<dyn std::error::Error>> {
-        init();
         let cases = [(false,), (true,)];
         for (maximize,) in cases.iter() {
             debug!("maximize {}", *maximize);
@@ -895,7 +879,6 @@ mod tests {
 
     #[test]
     fn test_random_no_perfect_matching() -> Result<(), Box<dyn std::error::Error>> {
-        init();
         const NUM_ROWS: u32 = 9;
         const NUM_COLS: u32 = 9;
         let mut val_rng = ChaCha8Rng::seed_from_u64(1);
@@ -912,7 +895,7 @@ mod tests {
         );
 
         let mut approx_solution = solution.clone();
-        solver.init(NUM_ROWS, NUM_COLS, None, None).unwrap();
+        solver.init(NUM_ROWS, NUM_COLS, Some(200), None).unwrap();
 
         (0..NUM_ROWS)
             .map(|i| {
@@ -922,9 +905,12 @@ mod tests {
                 (i, j_samples)
             })
             .for_each(|(i, j_samples)| {
-                let j_values = j_samples.map(|_| between.sample(&mut val_rng));
+                let j_values = j_samples
+                    .iter()
+                    .map(|_| between.sample(&mut val_rng))
+                    .collect::<Vec<_>>();
                 solver
-                    .extend_from_values(i, j_samples.as_slice(), j_values.as_slice())
+                    .extend_from_values(i, &j_samples[..], j_values.as_slice())
                     .unwrap();
 
                 debug!("({} -> {:?}: {:?})", i, j_samples, j_values);
@@ -945,7 +931,6 @@ mod tests {
     }
     #[test]
     fn test_random_large() -> Result<(), Box<dyn std::error::Error>> {
-        init();
         const NUM_ROWS: u32 = 90;
         const NUM_COLS: u32 = 900;
         let mut val_rng = ChaCha8Rng::seed_from_u64(1);
@@ -972,9 +957,12 @@ mod tests {
                 (i, j_samples)
             })
             .for_each(|(i, j_samples)| {
-                let j_values = j_samples.map(|_| between.sample(&mut val_rng));
+                let j_values = j_samples
+                    .iter()
+                    .map(|_| between.sample(&mut val_rng))
+                    .collect::<Vec<_>>();
                 solver
-                    .extend_from_values(i, j_samples.as_slice(), j_values.as_slice())
+                    .extend_from_values(i, &j_samples[..], j_values.as_slice())
                     .unwrap();
             });
         assert!(solver.i_starts_stops.len() == NUM_ROWS as usize + 1);
@@ -997,7 +985,6 @@ mod tests {
     }
     #[test]
     fn test_fixed_cases() -> Result<(), Box<dyn std::error::Error>> {
-        init();
         // taken from https://github.com/gatagat/lap/blob/master/lap/tests/test_lapjv.py
         let cases = [
             (
