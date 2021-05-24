@@ -1,4 +1,4 @@
-use crate::solution;
+use crate::solution::{AuctionSolution, UnsignedInt};
 use crate::solver::AuctionSolver;
 use anyhow;
 use anyhow::Result;
@@ -9,7 +9,7 @@ use tracing::trace;
 /// Solver for auction problem
 /// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
 #[derive(Clone)]
-struct KhoslaSolver<I: solution::UnsignedInt + Integer> {
+pub struct KhoslaSolver<I: UnsignedInt + Integer> {
     num_rows: I,
     num_cols: I,
     prices: Vec<f64>,
@@ -21,16 +21,12 @@ struct KhoslaSolver<I: solution::UnsignedInt + Integer> {
     pub nits: u32,
 }
 
-impl<I: solution::UnsignedInt + Integer> AuctionSolver<I> for KhoslaSolver<I> {
-    type AuctionSolution = solution::AuctionSolution<I>;
-}
-
-impl<I: solution::UnsignedInt + Integer> KhoslaSolver<I> {
+impl<I: UnsignedInt + Integer> AuctionSolver<I, KhoslaSolver<I>> for KhoslaSolver<I> {
     fn new(
         row_capacity: usize,
         column_capacity: usize,
         arcs_capacity: usize,
-    ) -> (Self, <Self as AuctionSolver<I>>::AuctionSolution) {
+    ) -> (Self, AuctionSolution<I>) {
         (
             Self {
                 num_rows: I::zero(),
@@ -42,17 +38,57 @@ impl<I: solution::UnsignedInt + Integer> KhoslaSolver<I> {
                 values: Vec::with_capacity(arcs_capacity),
                 nits: 0,
             },
-            <Self as AuctionSolver<I>>::AuctionSolution::new(row_capacity, column_capacity),
+            AuctionSolution::<I>::new(row_capacity, column_capacity),
         )
     }
-    #[inline]
-    fn init(&mut self, num_rows: I, num_cols: I) -> Result<(), anyhow::Error> {
-        self.init_csr_storage(num_rows, num_cols)
+    fn num_rows(&self) -> I {
+        self.num_rows
+    }
+    fn set_num_rows(&mut self, num_rows: I) {
+        self.num_rows = num_rows
+    }
+    fn num_cols(&self) -> I {
+        self.num_cols
+    }
+    fn set_num_cols(&mut self, num_cols: I) {
+        self.num_cols = num_cols
     }
 
-    pub fn solve(
+    fn prices_ref(&self) -> &Vec<f64> {
+        &self.prices
+    }
+    fn i_starts_stops_ref(&self) -> &Vec<I> {
+        &self.i_starts_stops
+    }
+    fn j_counts_ref(&self) -> &Vec<I> {
+        &self.j_counts
+    }
+    fn column_indices_ref(&self) -> &Vec<I> {
+        &self.column_indices
+    }
+    fn values_ref(&self) -> &Vec<f64> {
+        &self.values
+    }
+
+    fn prices_mut_ref(&mut self) -> &mut Vec<f64> {
+        &mut self.prices
+    }
+    fn i_starts_stops_mut_ref(&mut self) -> &mut Vec<I> {
+        &mut self.i_starts_stops
+    }
+    fn j_counts_mut_ref(&mut self) -> &mut Vec<I> {
+        &mut self.j_counts
+    }
+    fn column_indices_mut_ref(&mut self) -> &mut Vec<I> {
+        &mut self.column_indices
+    }
+    fn values_mut_ref(&mut self) -> &mut Vec<f64> {
+        &mut self.values
+    }
+
+    fn solve(
         &mut self,
-        solution: &mut <Self as AuctionSolver<I>>::AuctionSolution,
+        solution: &mut AuctionSolution<I>,
         maximize: bool,
         eps: Option<f64>,
     ) -> Result<(), anyhow::Error> {
@@ -152,15 +188,4 @@ impl<I: solution::UnsignedInt + Integer> KhoslaSolver<I> {
 
         Ok(())
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{f64, AuctionSolver, Self::AuctionSolution};
-    use rand::distributions::{Distribution, Uniform};
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-    use reservoir_sampling::unweighted::core::r as reservoir_sample;
-    use test_env_log::test;
-    use tracing::{debug, trace};
 }

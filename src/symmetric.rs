@@ -1,4 +1,4 @@
-use crate::solution;
+use crate::solution::{AuctionSolution, UnsignedInt};
 use crate::solver::AuctionSolver;
 use anyhow;
 use anyhow::Result;
@@ -9,7 +9,7 @@ use tracing::{info, trace};
 /// Solver for auction problem
 /// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
 #[derive(Clone)]
-struct ForwardAuctionSolver<I: solution::UnsignedInt> {
+pub struct ForwardAuctionSolver<I: UnsignedInt> {
     num_rows: I,
     num_cols: I,
     prices: Vec<f64>,
@@ -18,8 +18,6 @@ struct ForwardAuctionSolver<I: solution::UnsignedInt> {
     column_indices: Vec<I>,
     // memory view of all values
     values: Vec<f64>,
-
-    target_eps: f64,
 
     max_iterations: u32,
 
@@ -35,19 +33,12 @@ struct ForwardAuctionSolver<I: solution::UnsignedInt> {
     person_to_assignment_idx: Vec<I>,
 }
 
-impl<I: solution::UnsignedInt> AuctionSolver<I> for ForwardAuctionSolver<I> {
-    type AuctionSolution = solution::AuctionSolution<I>;
-}
-
-impl<I: solution::UnsignedInt> ForwardAuctionSolver<I> {
-    const REDUCTION_FACTOR: f64 = 0.15;
-    const MAX_ITERATIONS: u32 = 100000;
-
-    pub fn new(
+impl<I: UnsignedInt> AuctionSolver<I, ForwardAuctionSolver<I>> for ForwardAuctionSolver<I> {
+    fn new(
         row_capacity: usize,
         column_capacity: usize,
         arcs_capacity: usize,
-    ) -> (Self, <Self as AuctionSolver<I>>::AuctionSolution) {
+    ) -> (Self, AuctionSolution<I>) {
         (
             Self {
                 num_rows: I::zero(),
@@ -57,7 +48,6 @@ impl<I: solution::UnsignedInt> ForwardAuctionSolver<I> {
                 prices: Vec::with_capacity(column_capacity),
                 column_indices: Vec::with_capacity(arcs_capacity),
                 values: Vec::with_capacity(arcs_capacity),
-                target_eps: f64::NAN,
 
                 max_iterations: Self::MAX_ITERATIONS,
 
@@ -71,41 +61,72 @@ impl<I: solution::UnsignedInt> ForwardAuctionSolver<I> {
                 unassigned_people: Vec::with_capacity(row_capacity),
                 person_to_assignment_idx: Vec::with_capacity(row_capacity),
             },
-            <Self as AuctionSolver<I>>::AuctionSolution::new(row_capacity, column_capacity),
+            AuctionSolution::<I>::new(row_capacity, column_capacity),
         )
     }
-    #[inline]
-    pub fn init(
-        &mut self,
-        num_rows: I,
-        num_cols: I,
-        max_iterations: Option<u32>,
-        target_eps: Option<f64>,
-    ) -> Result<(), anyhow::Error> {
-        self.init_csr_storage(num_rows, num_cols);
 
-        let float_num_rows: f64 = self.num_rows.as_();
-
-        self.target_eps = if let Some(eps) = target_eps {
-            eps
-        } else {
-            1.0 / float_num_rows
-        };
-
-        self.max_iterations = if let Some(iterations) = max_iterations {
-            iterations
-        } else {
-            Self::MAX_ITERATIONS
-        };
-        Ok(())
+    fn num_rows(&self) -> I {
+        self.num_rows
+    }
+    fn set_num_rows(&mut self, num_rows: I) {
+        self.num_rows = num_rows
+    }
+    fn num_cols(&self) -> I {
+        self.num_cols
+    }
+    fn set_num_cols(&mut self, num_cols: I) {
+        self.num_cols = num_cols
     }
 
-    fn init_solve(
+    fn prices_ref(&self) -> &Vec<f64> {
+        &self.prices
+    }
+    fn i_starts_stops_ref(&self) -> &Vec<I> {
+        &self.i_starts_stops
+    }
+    fn j_counts_ref(&self) -> &Vec<I> {
+        &self.j_counts
+    }
+    fn column_indices_ref(&self) -> &Vec<I> {
+        &self.column_indices
+    }
+    fn values_ref(&self) -> &Vec<f64> {
+        &self.values
+    }
+
+    fn prices_mut_ref(&mut self) -> &mut Vec<f64> {
+        &mut self.prices
+    }
+    fn i_starts_stops_mut_ref(&mut self) -> &mut Vec<I> {
+        &mut self.i_starts_stops
+    }
+    fn j_counts_mut_ref(&mut self) -> &mut Vec<I> {
+        &mut self.j_counts
+    }
+    fn column_indices_mut_ref(&mut self) -> &mut Vec<I> {
+        &mut self.column_indices
+    }
+    fn values_mut_ref(&mut self) -> &mut Vec<f64> {
+        &mut self.values
+    }
+
+    #[inline]
+    fn solve(
         &mut self,
-        solution: &mut <Self as AuctionSolver<I>>::AuctionSolution,
+        solution: &mut AuctionSolution<I>,
         maximize: bool,
-    ) {
-        self.init_solve(solution, maximize);
+        eps: Option<f64>,
+    ) -> Result<(), anyhow::Error> {
+        self.solve_with_params(solution, maximize, eps, None, None)
+    }
+}
+
+impl<I: UnsignedInt> ForwardAuctionSolver<I> {
+    const REDUCTION_FACTOR: f64 = 0.15;
+    const MAX_ITERATIONS: u32 = 100000;
+
+    fn init_solve(&mut self, solution: &mut AuctionSolution<I>, maximize: bool) {
+        AuctionSolver::init_solve(self, solution, maximize);
 
         let num_cols_usize: usize = self.num_cols.as_();
 
@@ -128,15 +149,32 @@ impl<I: solution::UnsignedInt> ForwardAuctionSolver<I> {
         self.person_to_assignment_idx
             .resize_with(num_rows_usize, || range.next().unwrap());
     }
+
     #[inline]
-    fn solve(
+    fn solve_with_params(
         &mut self,
-        solution: &mut <Self as AuctionSolver<I>>::AuctionSolution,
+        solution: &mut AuctionSolution<I>,
         maximize: bool,
+        eps: Option<f64>,
         start_eps: Option<f64>,
+        max_iterations: Option<u32>,
     ) -> Result<(), anyhow::Error> {
         self.validate_input()?;
         self.init_solve(solution, maximize);
+
+        let float_num_rows: f64 = self.num_rows.as_();
+
+        let target_eps = if let Some(eps) = eps {
+            eps
+        } else {
+            1.0 / float_num_rows
+        };
+
+        self.max_iterations = if let Some(iterations) = max_iterations {
+            iterations
+        } else {
+            Self::MAX_ITERATIONS
+        };
 
         // choose eps values
         // Calculate optimum initial eps and target eps
@@ -147,7 +185,7 @@ impl<I: solution::UnsignedInt> ForwardAuctionSolver<I> {
         trace!("toleration: {:e}", toleration);
 
         let mut start_from_optimal_eps = if let Some(eps) = start_eps {
-            eps < self.target_eps
+            eps < target_eps
         } else {
             false
         };
@@ -161,7 +199,7 @@ impl<I: solution::UnsignedInt> ForwardAuctionSolver<I> {
             if let Some(_) = start_eps {
                 info!("Disabling epsilon scaling for asymmetric assignment problem");
             }
-            solution.eps = self.target_eps - f64::EPSILON;
+            solution.eps = target_eps - f64::EPSILON;
         } else {
             solution.eps = if let Some(eps) = start_eps {
                 eps
@@ -176,18 +214,22 @@ impl<I: solution::UnsignedInt> ForwardAuctionSolver<I> {
 
             if solution.num_unassigned == I::zero() {
                 let is_optimal = start_from_optimal_eps
-                    || self.ecs_satisfied(solution.person_to_object.as_slice(), toleration);
+                    || self.ecs_satisfied(
+                        solution.person_to_object.as_slice(),
+                        target_eps,
+                        toleration,
+                    );
                 if is_optimal {
-                    solution.optimal_soln_found = true;
+                    self.optimal_soln_found = true;
                     break;
                 } else {
                     // full assignment made, but not all people happy, so restart with same prices, but lower eps
-                    if solution.eps < self.target_eps {
+                    if solution.eps < target_eps {
                         // terminate, shown to be optimal for eps < 1/n
                         break;
                     }
 
-                    solution.eps *= AuctionSolver::<I>::REDUCTION_FACTOR;
+                    solution.eps *= Self::REDUCTION_FACTOR;
                     trace!("REDUCTION: eps {}", solution.eps);
 
                     // reset all trackers of people and objects
@@ -214,10 +256,10 @@ impl<I: solution::UnsignedInt> ForwardAuctionSolver<I> {
                     .zip(self.person_to_assignment_idx.iter_mut())
                     .for_each(|(i, item_ref)| *item_ref = i);
 
-                    solution.nreductions += 1
+                    self.nreductions += 1
                 }
             }
-            if solution.nits >= self.max_iterations {
+            if self.nits >= self.max_iterations {
                 break;
             }
         }
@@ -225,7 +267,7 @@ impl<I: solution::UnsignedInt> ForwardAuctionSolver<I> {
         Ok(())
     }
 
-    fn bid_and_assign(&mut self, solution: &mut <Self as AuctionSolver<I>>::AuctionSolution) {
+    fn bid_and_assign(&mut self, solution: &mut AuctionSolution<I>) {
         // number of bids to be made
         let num_bidders = solution.num_unassigned.as_();
         let mut bidders = vec![I::max_value(); num_bidders];
@@ -404,13 +446,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::push_all_left;
-    use super::{f64, AuctionSolution, AuctionSolver};
-    use rand::distributions::{Distribution, Uniform};
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
-    use reservoir_sampling::unweighted::core::r as reservoir_sample;
-    use test_env_log::test;
-    use tracing::{debug, trace};
+    use super::ForwardAuctionSolver;
+    use crate::solver::AuctionSolver;
 
     #[test]
     fn test_push_all_left() {
@@ -424,276 +461,11 @@ mod tests {
     #[test]
     fn test_cumulative_idx_diff() {
         let arr = [0, 0, 0, 1, 1, 1, 1];
-        let (mut solver, _) = AuctionSolver::new(arr.len(), arr.len(), arr.len());
-        solver
-            .init(arr.len() as u16, arr.len() as u16, None, None)
-            .unwrap();
+        let (mut solver, _) = ForwardAuctionSolver::new(arr.len(), arr.len(), arr.len());
+        solver.init(arr.len() as u16, arr.len() as u16).unwrap();
         arr.iter()
             .for_each(|i| solver.add_value(*i, 0, 0.).unwrap());
         assert_eq!(solver.i_starts_stops, [0, 3, 7]);
         assert_eq!(solver.j_counts, [3, 4]);
-    }
-
-    fn solver_with_ksparse_input(
-        num_rows: u32,
-        num_cols: u32,
-        arcs_per_person: usize,
-    ) -> (AuctionSolver<u32>, AuctionSolution<u32>) {
-        let mut val_rng = ChaCha8Rng::seed_from_u64(1);
-        let mut filter_rng = ChaCha8Rng::seed_from_u64(2);
-
-        const MAX_VALUE: f64 = 10.0;
-        let between = Uniform::from(0.0..MAX_VALUE);
-
-        let (mut solver, solution) = AuctionSolver::new(
-            num_cols as usize,
-            num_rows as usize,
-            arcs_per_person * num_rows as usize,
-        );
-
-        solver.init(num_rows, num_cols, None, None).unwrap();
-
-        (0..num_rows)
-            .map(|i| {
-                let mut j_samples = vec![0; arcs_per_person];
-                reservoir_sample(0..num_cols, &mut j_samples, &mut filter_rng);
-                j_samples.sort_unstable();
-                (i, j_samples)
-            })
-            .for_each(|(i, j_samples)| {
-                let j_values = j_samples
-                    .iter()
-                    .map(|_| between.sample(&mut val_rng))
-                    .collect::<Vec<_>>();
-                solver
-                    .extend_from_values(i, j_samples.as_slice(), j_values.as_slice())
-                    .unwrap();
-
-                debug!("({} -> {:?}: {:?})", i, j_samples, j_values);
-            });
-        (solver, solution)
-    }
-
-    #[test]
-    fn test_random_solve_small() -> Result<(), Box<dyn std::error::Error>> {
-        let cases = [(false,), (true,)];
-        for (maximize,) in cases.iter() {
-            debug!("maximize {}", *maximize);
-            let (mut solver, mut solution) = solver_with_ksparse_input(5, 5, 2);
-            let mut approx_solution = solution.clone();
-            solver
-                .solve_approx(&mut approx_solution, *maximize, None)
-                .unwrap();
-            let approx_objective = solver.get_objective(&approx_solution);
-            solver.solve(&mut solution, *maximize, None).unwrap();
-            assert_eq!(approx_objective, solver.get_objective(&solution));
-            debug!(
-                "approx objective {}, {:?}",
-                solver.get_objective(&approx_solution),
-                approx_solution
-            );
-            debug!(
-                "auction objective {}, {:?}",
-                solver.get_objective(&solution),
-                solution
-            );
-            assert_eq!(solution.num_unassigned, 0);
-            assert_eq!(approx_solution.num_unassigned, 0);
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn test_random_no_perfect_matching() -> Result<(), Box<dyn std::error::Error>> {
-        const NUM_ROWS: u32 = 9;
-        const NUM_COLS: u32 = 9;
-        let mut val_rng = ChaCha8Rng::seed_from_u64(1);
-        let mut filter_rng = ChaCha8Rng::seed_from_u64(2);
-
-        const MAX_VALUE: f64 = 10.0;
-        let between = Uniform::from(0.0..MAX_VALUE);
-        const ARCS_PER_PERSON: usize = 3;
-
-        let (mut solver, mut solution) = AuctionSolver::new(
-            NUM_ROWS as usize,
-            NUM_COLS as usize,
-            ARCS_PER_PERSON * NUM_ROWS as usize,
-        );
-
-        let mut approx_solution = solution.clone();
-        solver.init(NUM_ROWS, NUM_COLS, Some(200), None).unwrap();
-
-        (0..NUM_ROWS)
-            .map(|i| {
-                let mut j_samples = [0; ARCS_PER_PERSON];
-                reservoir_sample(0..NUM_COLS, &mut j_samples, &mut filter_rng);
-                j_samples.sort_unstable();
-                (i, j_samples)
-            })
-            .for_each(|(i, j_samples)| {
-                let j_values = j_samples
-                    .iter()
-                    .map(|_| between.sample(&mut val_rng))
-                    .collect::<Vec<_>>();
-                solver
-                    .extend_from_values(i, &j_samples[..], j_values.as_slice())
-                    .unwrap();
-
-                debug!("({} -> {:?}: {:?})", i, j_samples, j_values);
-            });
-        assert!(solver.i_starts_stops.len() == NUM_ROWS as usize + 1);
-        solver
-            .solve_approx(&mut approx_solution, false, None)
-            .unwrap();
-        assert!(approx_solution.num_unassigned == 1);
-        let approx_objective = solver.get_objective(&approx_solution);
-        solver.solve(&mut solution, false, None).unwrap();
-        assert!(solution.num_unassigned == 1);
-        let auction_objective = solver.get_objective(&solution);
-        debug!("approx {:?} {:?}", approx_objective, approx_solution);
-        debug!("auction {:?} {:?}", auction_objective, solution);
-        assert!(approx_objective <= auction_objective);
-        Ok(())
-    }
-    #[test]
-    fn test_random_large() -> Result<(), Box<dyn std::error::Error>> {
-        const NUM_ROWS: u32 = 90;
-        const NUM_COLS: u32 = 900;
-        let mut val_rng = ChaCha8Rng::seed_from_u64(1);
-        let mut filter_rng = ChaCha8Rng::seed_from_u64(2);
-
-        const MAX_VALUE: f64 = 10.0;
-        let between = Uniform::from(0.0..MAX_VALUE);
-        const ARCS_PER_PERSON: usize = 32;
-
-        let (mut solver, mut solution) = AuctionSolver::new(
-            NUM_ROWS as usize,
-            NUM_COLS as usize,
-            ARCS_PER_PERSON * NUM_ROWS as usize,
-        );
-
-        let mut approx_solution = solution.clone();
-        solver.init(NUM_ROWS, NUM_COLS, Some(1000), None).unwrap();
-
-        (0..NUM_ROWS)
-            .map(|i| {
-                let mut j_samples = [0; ARCS_PER_PERSON];
-                reservoir_sample(0..NUM_COLS, &mut j_samples, &mut filter_rng);
-                j_samples.sort_unstable();
-                (i, j_samples)
-            })
-            .for_each(|(i, j_samples)| {
-                let j_values = j_samples
-                    .iter()
-                    .map(|_| between.sample(&mut val_rng))
-                    .collect::<Vec<_>>();
-                solver
-                    .extend_from_values(i, &j_samples[..], j_values.as_slice())
-                    .unwrap();
-            });
-        assert!(solver.i_starts_stops.len() == NUM_ROWS as usize + 1);
-        solver
-            .solve_approx(&mut approx_solution, false, None)
-            .unwrap();
-        let approx_objective = solver.get_objective(&approx_solution);
-        solver
-            .solve(&mut solution, false, Some(1.0 / NUM_ROWS as f64))
-            .unwrap();
-        let auction_objective = solver.get_objective(&solution);
-        debug!(
-            "approx nits {}, standard nits {}",
-            approx_solution.nits, solution.nits
-        );
-        assert_eq!(approx_objective, auction_objective);
-        assert_eq!(approx_solution.num_unassigned, 0);
-        assert_eq!(solution.num_unassigned, 0);
-        Ok(())
-    }
-    #[test]
-    fn test_fixed_cases() -> Result<(), Box<dyn std::error::Error>> {
-        // taken from https://github.com/gatagat/lap/blob/master/lap/tests/test_lapjv.py
-        let cases = [
-            (
-                false,
-                vec![
-                    vec![1000, 2, 11, 10, 8, 7, 6, 5],
-                    vec![6, 1000, 1, 8, 8, 4, 6, 7],
-                    vec![5, 12, 1000, 11, 8, 12, 3, 11],
-                    vec![11, 9, 10, 1000, 1, 9, 8, 10],
-                    vec![11, 11, 9, 4, 1000, 2, 10, 9],
-                    vec![12, 8, 5, 2, 11, 1000, 11, 9],
-                    vec![10, 11, 12, 10, 9, 12, 1000, 3],
-                    vec![10, 10, 10, 10, 6, 3, 1, 1000],
-                ],
-                (
-                    17.0,
-                    vec![1, 2, 0, 4, 5, 3, 7, 6],
-                    vec![2, 0, 1, 5, 3, 4, 7, 6],
-                ),
-            ),
-            (
-                false,
-                vec![vec![10, 10, 13], vec![4, 8, 8], vec![8, 5, 8]],
-                (13.0 + 4.0 + 5.0, vec![1, 0, 2], vec![1, 0, 2]),
-            ),
-            (
-                false,
-                vec![
-                    vec![10, 6, 14, 1],
-                    vec![17, 18, 17, 15],
-                    vec![14, 17, 15, 8],
-                    vec![11, 13, 11, 4],
-                ],
-                (6. + 17. + 14. + 4., vec![1, 2, 0, 3], vec![2, 0, 1, 3]),
-            ),
-            // one person
-            (
-                false,
-                vec![vec![10, 6, 14, 1]],
-                (1., vec![3], vec![u32::MAX, u32::MAX, u32::MAX, 0]),
-            ),
-        ];
-
-        let (mut solver, mut solution) = AuctionSolver::new(10, 10, 100);
-        let mut approx_solution = solution.clone();
-
-        for (maximize, costs, (optimal_cost, person_to_object, object_to_person)) in cases.iter() {
-            let num_rows = costs.len();
-            let num_cols = costs[0].len();
-
-            solver
-                .init(num_rows as u32, num_cols as u32, None, None)
-                .unwrap();
-            (0..costs.len() as u32)
-                .zip(costs.iter())
-                .for_each(|(i, row_ref)| {
-                    let j_indices = (0..row_ref.len() as u32).collect::<Vec<_>>();
-                    let values = row_ref.iter().map(|v| ((*v) as f64)).collect::<Vec<_>>();
-                    solver
-                        .extend_from_values(i, j_indices.as_slice(), values.as_slice())
-                        .unwrap();
-                });
-            solver
-                .solve_approx(&mut approx_solution, *maximize, None)
-                .unwrap();
-            trace!("approx: {:?}", approx_solution);
-            assert_eq!(solver.get_objective(&approx_solution), *optimal_cost);
-
-            solver.solve(&mut solution, *maximize, None).unwrap();
-            trace!("exact {:?}", solution);
-            assert_eq!(solution.num_unassigned, 0);
-            assert_eq!(solver.get_objective(&solution), *optimal_cost);
-            assert!(solution.optimal_soln_found);
-            assert_eq!(
-                solution.person_to_object, *person_to_object,
-                "person_to_object"
-            );
-            assert_eq!(
-                solution.object_to_person, *object_to_person,
-                "object_to_person"
-            );
-        }
-
-        Ok(())
     }
 }

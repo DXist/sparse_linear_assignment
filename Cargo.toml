@@ -9,19 +9,20 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0"
 num-traits = "0.2"
-num-integer = "0.1"
 num-iter = "0.1"
+num-integer = { version = "0.1", optional = true }
 tracing-subscriber = "0.2"
 tracing = { version = "0.1", features = ["release_max_level_warn"] }
 
+
 [dev-dependencies]
-test-env-log = { version = "0.2.7", default_features = false, features = ["trace"] }
 tracing = { version = "0.1", features = ["max_level_trace"] }
 rand = "0.8"
 rand_distr = "0.4"
 rand_chacha = "0.3"
 reservoir-sampling = "0.5"
 criterion = "0.3"
+generic-tests = "0.1"
 
 [lib]
 # disable libtest benchmarks
@@ -30,3 +31,8 @@ bench = false
 [[bench]]
 name = "benchmark"
 harness = false
+
+[features]
+default = ["khosla", "forward"]
+khosla = ["num-integer"]
+forward = []

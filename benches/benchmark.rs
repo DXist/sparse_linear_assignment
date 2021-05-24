@@ -7,30 +7,32 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rand_distr::Beta;
 use reservoir_sampling::unweighted::core::r as reservoir_sample;
-use sparse_linear_assignment::{AuctionSolver, Float};
+use sparse_linear_assignment::ksparse::KhoslaSolver;
+use sparse_linear_assignment::symmetric::ForwardAuctionSolver;
+use sparse_linear_assignment::AuctionSolver;
 
 type UInt = u32;
 
-fn gen_symmetric_input(
-    solver: &mut AuctionSolver<UInt>,
+fn gen_symmetric_input<Solver: AuctionSolver<UInt, Solver>>(
+    solver: &mut Solver,
     seed: u64,
     size: UInt,
-    density: Float,
-    min_value: Float,
-    max_value: Float,
+    density: f64,
+    min_value: f64,
+    max_value: f64,
 ) {
     let mut val_rng = ChaCha8Rng::seed_from_u64(seed);
     let mut filter_rng = ChaCha8Rng::seed_from_u64(seed + 1);
 
     let between = Uniform::from(min_value..max_value);
     let num_of_arcs_fully_dense = (size as u32).pow(2);
-    let target_elements_from_prng = ((num_of_arcs_fully_dense as Float) * density) as u32;
+    let target_elements_from_prng = ((num_of_arcs_fully_dense as f64) * density) as u32;
     let whether_to_add = Bernoulli::from_ratio(target_elements_from_prng, num_of_arcs_fully_dense)
         .expect("unexpected error");
     let mut ensured_i_to_j = (0..size).collect::<Vec<UInt>>();
     ensured_i_to_j.as_mut_slice().shuffle(&mut filter_rng);
 
-    solver.init(size, size, None, None).unwrap();
+    solver.init(size, size).unwrap();
     (0..size)
         .flat_map(|i| (0..size).map(move |j| (i, j)))
         .for_each(|(i, j)| {
@@ -44,22 +46,20 @@ fn gen_symmetric_input(
         });
 }
 
-fn gen_asymmetric_input(
-    solver: &mut AuctionSolver<UInt>,
+fn gen_asymmetric_input<Solver: AuctionSolver<UInt, Solver>>(
+    solver: &mut Solver,
     seed: u64,
     num_of_people: UInt,
     num_of_objects: UInt,
     arcs_per_person: UInt,
-    min_value: Float,
-    range_width: Float,
+    min_value: f64,
+    range_width: f64,
 ) {
     let mut val_rng = ChaCha8Rng::seed_from_u64(seed);
     let mut filter_rng = ChaCha8Rng::seed_from_u64(seed + 1);
     let beta = Beta::new(3.0, 3.0).unwrap();
 
-    solver
-        .init(num_of_people, num_of_objects, None, None)
-        .unwrap();
+    solver.init(num_of_people, num_of_objects).unwrap();
     (0..num_of_people)
         .map(|i| {
             let mut j_samples = vec![0; arcs_per_person as usize];
@@ -80,20 +80,33 @@ fn gen_asymmetric_input(
 
 fn bench_symmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt, max_size: UInt) {
     let mut group = c.benchmark_group("symmetric_random_degree");
-    let (mut solver, solution) = AuctionSolver::new(
+    let (mut forward_solver, forward_solution) = ForwardAuctionSolver::new(
         max_size as usize,
         max_size as usize,
         (max_size as usize).pow(2) * (max_density_percent as usize) / 100,
     );
-    for density in (1..=max_density_percent).map(|i| i as Float * 0.01) {
+    let (mut khosla_solver, khosla_solution) = KhoslaSolver::new(
+        max_size as usize,
+        max_size as usize,
+        (max_size as usize).pow(2) * (max_density_percent as usize) / 100,
+    );
+    group.sample_size(10);
+    group.sampling_mode(SamplingMode::Flat);
+
+    for density in (1..=max_density_percent).map(|i| i as f64 * 0.01) {
         for size in (1000..=max_size).step_by(1000) {
-            gen_symmetric_input(&mut solver, size as u64, size, density, 500.0, 1000.0);
-            group.throughput(Throughput::Elements(solver.num_of_arcs() as u64));
-            group.sample_size(10);
-            group.sampling_mode(SamplingMode::Flat);
+            gen_symmetric_input(
+                &mut forward_solver,
+                size as u64,
+                size,
+                density,
+                500.0,
+                1000.0,
+            );
+            group.throughput(Throughput::Elements(forward_solver.num_of_arcs() as u64));
             let benchmark_id =
                 BenchmarkId::new("forward", format!("density {} size {}", density, size));
-            let input = (solver.clone(), solution.clone());
+            let input = (forward_solver.clone(), forward_solution.clone());
 
             group.bench_with_input(benchmark_id, &input, |b, input| {
                 b.iter_batched(
@@ -103,26 +116,34 @@ fn bench_symmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt
                         if solution.num_unassigned != 0 {
                             println!(
                                 "not optimal: nits {}, nreductions {}, num_unassigned {}",
-                                solution.nits, solution.nreductions, solution.num_unassigned,
+                                solver.nits, solver.nreductions, solution.num_unassigned,
                             )
                         }
                     },
                     BatchSize::LargeInput,
                 );
             });
+            gen_symmetric_input(
+                &mut khosla_solver,
+                size as u64,
+                size,
+                density,
+                500.0,
+                1000.0,
+            );
             let benchmark_id =
                 BenchmarkId::new("khosla", format!("density {} size {}", density, size));
-            let input = (solver.clone(), solution.clone());
+            let input = (khosla_solver.clone(), khosla_solution.clone());
 
             group.bench_with_input(benchmark_id, &input, |b, input| {
                 b.iter_batched(
                     || input.clone(),
                     |(mut solver, mut solution)| {
-                        solver.solve_approx(&mut solution, false, None).unwrap();
+                        solver.solve(&mut solution, false, None).unwrap();
                         if solution.num_unassigned != 0 {
                             println!(
-                                "not optimal: nits {}, nreductions {}, num_unassigned {}",
-                                solution.nits, solution.nreductions, solution.num_unassigned,
+                                "not optimal: nits {}, num_unassigned {}",
+                                solver.nits, solution.num_unassigned,
                             )
                         }
                     },
@@ -141,16 +162,23 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
 ) {
     let mut group = c.benchmark_group("asymmetric_ksparse");
     let num_of_objects = 60000;
-    let (mut solver, solution) = AuctionSolver::new(
+    let (mut forward_solver, forward_solution) = ForwardAuctionSolver::new(
         max_num_of_people as usize,
         num_of_objects as usize,
         (max_num_of_people * max_arcs_per_person) as usize,
     );
+    let (mut khosla_solver, khosla_solution) = KhoslaSolver::new(
+        max_num_of_people as usize,
+        num_of_objects as usize,
+        (max_num_of_people * max_arcs_per_person) as usize,
+    );
+    group.sampling_mode(SamplingMode::Flat);
+
     for num_of_people in (100..=max_num_of_people).step_by(200) {
         for arcs_per_person in (32..=max_arcs_per_person).step_by(8) {
             // let num_of_objects = num_of_people * arcs_per_person;
             gen_asymmetric_input(
-                &mut solver,
+                &mut forward_solver,
                 num_of_people as u64,
                 num_of_people,
                 num_of_objects,
@@ -158,48 +186,56 @@ fn bench_asymmetric_num_of_people_and_arcs_per_person(
                 300.0,
                 700.0,
             );
-            group.throughput(Throughput::Elements(solver.num_of_arcs() as u64));
-            group.sampling_mode(SamplingMode::Flat);
+            group.throughput(Throughput::Elements(forward_solver.num_of_arcs() as u64));
             let benchmark_id = BenchmarkId::new(
-                "classic",
+                "forward",
                 format!(
                     "num_of_people {}, num_of_objects {}, arcs_per_person {}",
                     num_of_people, num_of_objects, arcs_per_person
                 ),
             );
-            let input = (solver.clone(), solution.clone());
+            let input = (forward_solver.clone(), forward_solution.clone());
             group.bench_with_input(benchmark_id, &input, |b, input| {
                 b.iter_batched(
                     || input.clone(),
                     |(mut solver, mut solution)| {
                         solver.solve(&mut solution, false, None).unwrap();
-                        if !solution.optimal_soln_found {
+                        if !solver.optimal_soln_found {
                             println!(
                                 "not optimal: nits {}, nreductions {}, num_unassigned {}",
-                                solution.nits, solution.nreductions, solution.num_unassigned,
+                                solver.nits, solver.nreductions, solution.num_unassigned,
                             )
                         }
                     },
                     BatchSize::SmallInput,
                 );
             });
-            let input = (solver.clone(), solution.clone());
-            let benchmark_id_imporoved = BenchmarkId::new(
-                "improved",
+            gen_asymmetric_input(
+                &mut khosla_solver,
+                num_of_people as u64,
+                num_of_people,
+                num_of_objects,
+                arcs_per_person,
+                300.0,
+                700.0,
+            );
+            let input = (khosla_solver.clone(), khosla_solution.clone());
+            let benchmark_id = BenchmarkId::new(
+                "khosla",
                 format!(
                     "num_of_people {}, num_of_objects {}, arcs_per_person {}",
                     num_of_people, num_of_objects, arcs_per_person
                 ),
             );
-            group.bench_with_input(benchmark_id_imporoved, &input, |b, input| {
+            group.bench_with_input(benchmark_id, &input, |b, input| {
                 b.iter_batched(
                     || input.clone(),
                     |(mut solver, mut solution)| {
-                        solver.solve_approx(&mut solution, false, None).unwrap();
+                        solver.solve(&mut solution, false, None).unwrap();
                         if solution.num_unassigned != 0 {
                             println!(
-                                "not optimal: nits {}, nreductions {}, num_unassigned {}",
-                                solution.nits, solution.nreductions, solution.num_unassigned,
+                                "not optimal: nits {}, num_unassigned {}",
+                                solver.nits, solution.num_unassigned,
                             )
                         }
                     },

@@ -13,6 +13,9 @@ pub trait UnsignedInt:
 {
 }
 
+impl UnsignedInt for u16 {}
+impl UnsignedInt for u32 {}
+
 ///
 /// Solution of the linear assignment problem
 ///
