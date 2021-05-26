@@ -3,8 +3,12 @@ name = "sparse_linear_assignment"
 version = "0.1.0"
 authors = ["Rinat Shigapov <rinatshigapov@gmail.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Solvers for sparse linear assignment problem based on auction algorithms"
+readme = "README.md"
+repository = "https://github.com/DXist/sparse_linear_assignment"
+licence = "Apache-2.0"
+keywords = ["linear-assignment", "weighted-matching", "optimization", "auction-algorithm", "sparse"]
+categories = ["algorithms", "mathematics", "science"]
 
 [dependencies]
 anyhow = "1.0"

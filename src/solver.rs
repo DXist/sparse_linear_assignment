@@ -19,31 +19,31 @@ pub trait AuctionSolver<I: UnsignedInt, T: AuctionSolver<I, T>> {
         eps: Option<f64>,
     ) -> Result<(), anyhow::Error>;
 
-    // getters/setters/ref and mut ref accessors, used in the default implementation
+    // ref and mut ref accessors, used in the default implementation
     fn num_rows(&self) -> I;
-    fn set_num_rows(&mut self, num_rows: I);
     fn num_cols(&self) -> I;
-    fn set_num_cols(&mut self, num_cols: I);
+    fn num_rows_mut(&mut self) -> &mut I;
+    fn num_cols_mut(&mut self) -> &mut I;
 
-    fn prices_ref(&self) -> &Vec<f64>;
-    fn i_starts_stops_ref(&self) -> &Vec<I>;
-    fn j_counts_ref(&self) -> &Vec<I>;
-    fn column_indices_ref(&self) -> &Vec<I>;
-    fn values_ref(&self) -> &Vec<f64>;
+    fn prices(&self) -> &Vec<f64>;
+    fn i_starts_stops(&self) -> &Vec<I>;
+    fn j_counts(&self) -> &Vec<I>;
+    fn column_indices(&self) -> &Vec<I>;
+    fn values(&self) -> &Vec<f64>;
 
-    fn prices_mut_ref(&mut self) -> &mut Vec<f64>;
-    fn i_starts_stops_mut_ref(&mut self) -> &mut Vec<I>;
-    fn j_counts_mut_ref(&mut self) -> &mut Vec<I>;
-    fn column_indices_mut_ref(&mut self) -> &mut Vec<I>;
-    fn values_mut_ref(&mut self) -> &mut Vec<f64>;
+    fn prices_mut(&mut self) -> &mut Vec<f64>;
+    fn i_starts_stops_mut(&mut self) -> &mut Vec<I>;
+    fn j_counts_mut(&mut self) -> &mut Vec<I>;
+    fn column_indices_mut(&mut self) -> &mut Vec<I>;
+    fn values_mut(&mut self) -> &mut Vec<f64>;
 
     #[inline]
     fn add_value(&mut self, row: I, column: I, value: f64) -> Result<(), anyhow::Error> {
-        let current_row = self.j_counts_mut_ref().len() - 1;
+        let current_row = self.j_counts_mut().len() - 1;
         let row_usize: usize = row.as_();
         ensure!(row_usize == current_row || row_usize == current_row + 1);
 
-        let cumulative_offset = self.i_starts_stops_mut_ref()[current_row + 1]
+        let cumulative_offset = self.i_starts_stops_mut()[current_row + 1]
             .checked_add(&I::one())
             .ok_or_else(|| {
                 anyhow_error!("i_starts_stops vector is longer then max value of type")
@@ -52,16 +52,16 @@ pub trait AuctionSolver<I: UnsignedInt, T: AuctionSolver<I, T>> {
         if row_usize > current_row {
             // starting the next row
             // ensure that row has at least one element
-            ensure!(self.j_counts_mut_ref()[current_row] > I::zero());
-            self.i_starts_stops_mut_ref().push(cumulative_offset);
-            self.j_counts_mut_ref().push(I::one());
+            ensure!(self.j_counts_mut()[current_row] > I::zero());
+            self.i_starts_stops_mut().push(cumulative_offset);
+            self.j_counts_mut().push(I::one());
         } else {
-            self.i_starts_stops_mut_ref()[current_row + 1] = cumulative_offset;
-            self.j_counts_mut_ref()[current_row] += I::one()
+            self.i_starts_stops_mut()[current_row + 1] = cumulative_offset;
+            self.j_counts_mut()[current_row] += I::one()
         }
 
-        self.column_indices_mut_ref().push(column);
-        self.values_mut_ref().push(value);
+        self.column_indices_mut().push(column);
+        self.values_mut().push(value);
         Ok(())
     }
 
@@ -73,13 +73,13 @@ pub trait AuctionSolver<I: UnsignedInt, T: AuctionSolver<I, T>> {
         values: &[f64],
     ) -> Result<(), anyhow::Error> {
         ensure!(columns.len() == values.len());
-        let current_row = self.j_counts_mut_ref().len() - 1;
+        let current_row = self.j_counts_mut().len() - 1;
         let row_usize: usize = row.as_();
         ensure!(row_usize == current_row || row_usize == current_row + 1);
 
         let length_increment = I::from_usize(columns.len())
             .ok_or_else(|| anyhow_error!(" columns slice is longer then max value of type"))?;
-        let cumulative_offset = self.i_starts_stops_mut_ref()[current_row + 1]
+        let cumulative_offset = self.i_starts_stops_mut()[current_row + 1]
             .checked_add(&length_increment)
             .ok_or_else(|| {
                 anyhow_error!("i_starts_stops_mut_ref() vector is longer then max value of type")
@@ -88,27 +88,27 @@ pub trait AuctionSolver<I: UnsignedInt, T: AuctionSolver<I, T>> {
         if row_usize > current_row {
             // starting the next row
             // ensure that current_row has at least one element
-            ensure!(self.j_counts_mut_ref()[current_row] > I::zero());
-            self.i_starts_stops_mut_ref().push(cumulative_offset);
-            self.j_counts_mut_ref().push(length_increment);
+            ensure!(self.j_counts_mut()[current_row] > I::zero());
+            self.i_starts_stops_mut().push(cumulative_offset);
+            self.j_counts_mut().push(length_increment);
         } else {
-            self.i_starts_stops_mut_ref()[current_row + 1] = cumulative_offset;
-            self.j_counts_mut_ref()[current_row] += length_increment;
+            self.i_starts_stops_mut()[current_row + 1] = cumulative_offset;
+            self.j_counts_mut()[current_row] += length_increment;
         }
-        self.column_indices_mut_ref().extend_from_slice(columns);
-        self.values_mut_ref().extend_from_slice(values);
+        self.column_indices_mut().extend_from_slice(columns);
+        self.values_mut().extend_from_slice(values);
         Ok(())
     }
 
     #[inline]
     fn num_of_arcs(&self) -> usize {
-        self.column_indices_ref().len()
+        self.column_indices().len()
     }
 
     /// Returns current objective value of assignments.
     /// Checks for the sign of the first element to return positive objective.
     fn get_objective(&self, solution: &AuctionSolution<I>) -> f64 {
-        let positive_values = if *self.values_ref().get(0).unwrap_or(&0.0) >= 0. {
+        let positive_values = if *self.values().get(0).unwrap_or(&0.0) >= 0. {
             true
         } else {
             false
@@ -124,16 +124,16 @@ pub trait AuctionSolver<I: UnsignedInt, T: AuctionSolver<I, T>> {
                 continue;
             }
 
-            let num_objects = self.j_counts_ref()[i_usize];
-            let start: I = self.i_starts_stops_ref()[i_usize];
+            let num_objects = self.j_counts()[i_usize];
+            let start: I = self.i_starts_stops()[i_usize];
             for idx in num_iter::range(I::zero(), num_objects) {
                 let glob_idx: usize = (start + idx).as_();
-                let l = self.column_indices_ref()[glob_idx];
+                let l = self.column_indices()[glob_idx];
                 if l == j {
                     if positive_values {
-                        obj += self.values_ref()[glob_idx];
+                        obj += self.values()[glob_idx];
                     } else {
-                        obj -= self.values_ref()[glob_idx];
+                        obj -= self.values()[glob_idx];
                     }
                 }
             }
@@ -154,17 +154,17 @@ pub trait AuctionSolver<I: UnsignedInt, T: AuctionSolver<I, T>> {
     fn ecs_satisfied(&self, person_to_object: &[I], eps: f64, toleration: f64) -> bool {
         for i in num_iter::range(I::zero(), self.num_rows()) {
             let i_usize: usize = i.as_();
-            let num_objects = self.j_counts_ref()[i_usize]; // the number of objects this person is able to bid on
+            let num_objects = self.j_counts()[i_usize]; // the number of objects this person is able to bid on
 
-            let start = self.i_starts_stops_ref()[i_usize]; // in flattened index format, the starting index of this person's objects/values
+            let start = self.i_starts_stops()[i_usize]; // in flattened index format, the starting index of this person's objects/values
             let j = person_to_object[i_usize]; // chosen object
 
             let mut chosen_value = f64::NEG_INFINITY;
             for idx in num_iter::range(I::zero(), num_objects) {
                 let glob_idx: usize = (start + idx).as_();
-                let l: I = self.column_indices_ref()[glob_idx];
+                let l: I = self.column_indices()[glob_idx];
                 if l == j {
-                    chosen_value = self.values_ref()[glob_idx];
+                    chosen_value = self.values()[glob_idx];
                 }
             }
 
@@ -172,13 +172,13 @@ pub trait AuctionSolver<I: UnsignedInt, T: AuctionSolver<I, T>> {
             // Go through each, asserting that max(a_ik - p_k) - eps <= (a_ij - p_j) + tol for all k.
             // Tolerance is added to deal with floating point precision for eCS, due to eps being stored as float
             let j_usize: usize = j.as_();
-            let lhs: f64 = chosen_value - self.prices_ref()[j_usize] + toleration; // left hand side of inequality
+            let lhs: f64 = chosen_value - self.prices()[j_usize] + toleration; // left hand side of inequality
 
             for idx in num_iter::range(I::zero(), num_objects) {
                 let glob_idx: usize = (start + idx).as_();
-                let k: usize = self.column_indices_ref()[glob_idx].as_();
-                let value: f64 = self.values_ref()[glob_idx];
-                if lhs < value - self.prices_ref()[k] - eps {
+                let k: usize = self.column_indices()[glob_idx].as_();
+                let value: f64 = self.values()[glob_idx];
+                if lhs < value - self.prices()[k] - eps {
                     trace!("ECS CONDITION is not met");
                     return false;
                 }
@@ -191,34 +191,32 @@ pub trait AuctionSolver<I: UnsignedInt, T: AuctionSolver<I, T>> {
     fn init(&mut self, num_rows: I, num_cols: I) -> Result<(), anyhow::Error> {
         ensure!(num_rows <= num_cols);
         ensure!(num_rows < I::max_value());
-        self.set_num_rows(num_rows);
-        self.set_num_cols(num_cols);
+        *self.num_rows_mut() = num_rows;
+        *self.num_cols_mut() = num_cols;
 
-        self.i_starts_stops_mut_ref().clear();
-        self.i_starts_stops_mut_ref().resize(2, I::zero());
-        self.j_counts_mut_ref().clear();
-        self.j_counts_mut_ref().push(I::zero());
+        self.i_starts_stops_mut().clear();
+        self.i_starts_stops_mut().resize(2, I::zero());
+        self.j_counts_mut().clear();
+        self.j_counts_mut().push(I::zero());
 
-        self.column_indices_mut_ref().clear();
-        self.values_mut_ref().clear();
+        self.column_indices_mut().clear();
+        self.values_mut().clear();
         Ok(())
     }
 
     fn init_solve(&mut self, solution: &mut AuctionSolution<I>, maximize: bool) {
         let num_cols_usize: usize = self.num_cols().as_();
-        let positive_values = if *self.values_mut_ref().get(0).unwrap_or(&0.0) >= 0. {
+        let positive_values = if *self.values_mut().get(0).unwrap_or(&0.0) >= 0. {
             true
         } else {
             false
         };
         if maximize ^ positive_values {
-            self.values_mut_ref()
-                .iter_mut()
-                .for_each(|v_ref| *v_ref *= -1.);
+            self.values_mut().iter_mut().for_each(|v_ref| *v_ref *= -1.);
         }
 
-        self.prices_mut_ref().clear();
-        self.prices_mut_ref().resize(num_cols_usize, 0.);
+        self.prices_mut().clear();
+        self.prices_mut().resize(num_cols_usize, 0.);
 
         solution.person_to_object.clear();
         solution
@@ -237,10 +235,10 @@ pub trait AuctionSolver<I: UnsignedInt, T: AuctionSolver<I, T>> {
         ensure!(self.num_rows() > I::zero() && self.num_cols() > I::zero());
         ensure!(arcs_count < I::max_value().as_());
         ensure!(
-            arcs_count == self.column_indices_ref().len()
-                && self.column_indices_ref().len() == self.values_ref().len()
+            arcs_count == self.column_indices().len()
+                && self.column_indices().len() == self.values().len()
         );
-        debug_assert!(*self.column_indices_ref().iter().max().unwrap() < self.num_cols());
+        debug_assert!(*self.column_indices().iter().max().unwrap() < self.num_cols());
         Ok(())
     }
 }

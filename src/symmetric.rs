@@ -68,45 +68,45 @@ impl<I: UnsignedInt> AuctionSolver<I, ForwardAuctionSolver<I>> for ForwardAuctio
     fn num_rows(&self) -> I {
         self.num_rows
     }
-    fn set_num_rows(&mut self, num_rows: I) {
-        self.num_rows = num_rows
-    }
     fn num_cols(&self) -> I {
         self.num_cols
     }
-    fn set_num_cols(&mut self, num_cols: I) {
-        self.num_cols = num_cols
+    fn num_rows_mut(&mut self) -> &mut I {
+        &mut self.num_rows
+    }
+    fn num_cols_mut(&mut self) -> &mut I {
+        &mut self.num_cols
     }
 
-    fn prices_ref(&self) -> &Vec<f64> {
+    fn prices(&self) -> &Vec<f64> {
         &self.prices
     }
-    fn i_starts_stops_ref(&self) -> &Vec<I> {
+    fn i_starts_stops(&self) -> &Vec<I> {
         &self.i_starts_stops
     }
-    fn j_counts_ref(&self) -> &Vec<I> {
+    fn j_counts(&self) -> &Vec<I> {
         &self.j_counts
     }
-    fn column_indices_ref(&self) -> &Vec<I> {
+    fn column_indices(&self) -> &Vec<I> {
         &self.column_indices
     }
-    fn values_ref(&self) -> &Vec<f64> {
+    fn values(&self) -> &Vec<f64> {
         &self.values
     }
 
-    fn prices_mut_ref(&mut self) -> &mut Vec<f64> {
+    fn prices_mut(&mut self) -> &mut Vec<f64> {
         &mut self.prices
     }
-    fn i_starts_stops_mut_ref(&mut self) -> &mut Vec<I> {
+    fn i_starts_stops_mut(&mut self) -> &mut Vec<I> {
         &mut self.i_starts_stops
     }
-    fn j_counts_mut_ref(&mut self) -> &mut Vec<I> {
+    fn j_counts_mut(&mut self) -> &mut Vec<I> {
         &mut self.j_counts
     }
-    fn column_indices_mut_ref(&mut self) -> &mut Vec<I> {
+    fn column_indices_mut(&mut self) -> &mut Vec<I> {
         &mut self.column_indices
     }
-    fn values_mut_ref(&mut self) -> &mut Vec<f64> {
+    fn values_mut(&mut self) -> &mut Vec<f64> {
         &mut self.values
     }
 
