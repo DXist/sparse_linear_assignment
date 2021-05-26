@@ -131,6 +131,7 @@ fn bench_symmetric_density_and_size(c: &mut Criterion, max_density_percent: UInt
                 500.0,
                 1000.0,
             );
+            group.throughput(Throughput::Elements(khosla_solver.num_of_arcs() as u64));
             let benchmark_id =
                 BenchmarkId::new("khosla", format!("density {} size {}", density, size));
             let input = (khosla_solver.clone(), khosla_solution.clone());
