@@ -20,7 +20,7 @@ use tracing::{info, trace};
 /// If there is no perfect matching the algorithm enters in endless loop and terminates after
 /// configured number of `max_iterations`.
 ///
-/// See [tests](crate::solver) for example usage.
+/// See tests for example usage.
 #[derive(Clone)]
 pub struct ForwardAuctionSolver<I: UnsignedInt> {
     num_rows: I,

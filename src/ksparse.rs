@@ -18,7 +18,7 @@ use tracing::trace;
 ///
 /// If there is no perfect matching the algorithm finds good matching in finite number of steps.
 ///
-/// See [tests](crate::solver) for example usage.
+/// See tests for example usage.
 #[derive(Clone)]
 pub struct KhoslaSolver<I: UnsignedInt + Integer> {
     num_rows: I,
