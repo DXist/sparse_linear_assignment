@@ -35,6 +35,9 @@ use tracing::{info, trace};
 ///    ];
 ///    let expected_cost = 1. + 16.;
 ///    let expected_person_to_object = vec![3, 2];
+///    // u32::MAX value is used to indicate that the corresponding object is not assigned.
+///    // If there is no perfect matching unassigned people in `person_to_object` will be marked by
+///    // u32::MAX too
 ///    let expected_object_to_person = vec![u32::MAX, u32::MAX, 1, 0];
 ///    // Create [ForwardAuctionSolver] and [AuctionSolution] instances with expected capacity of rows,
 ///    // columns and arcs. We can reuse them in case there is a need to solve multiple assignment
