@@ -29,6 +29,7 @@ pub struct KhoslaSolver<I: UnsignedInt + Integer> {
     column_indices: Vec<I>,
     // memory view of all values
     values: Vec<f64>,
+    ustack: Vec<I>,
     pub nits: u32,
 }
 
@@ -47,6 +48,7 @@ impl<I: UnsignedInt + Integer> AuctionSolver<I, KhoslaSolver<I>> for KhoslaSolve
                 prices: Vec::with_capacity(column_capacity),
                 column_indices: Vec::with_capacity(arcs_capacity),
                 values: Vec::with_capacity(arcs_capacity),
+                ustack: Vec::with_capacity(row_capacity),
                 nits: 0,
             },
             AuctionSolution::<I>::new(row_capacity, column_capacity),
@@ -130,10 +132,7 @@ impl<I: UnsignedInt + Integer> AuctionSolver<I, KhoslaSolver<I>> for KhoslaSolve
 
         self.nits = 0;
 
-        let mut ustack = Vec::with_capacity(self.num_rows.as_());
-        ustack.extend(num_iter::range(I::zero(), self.num_rows).rev());
-
-        while let Some(u_i) = ustack.pop() {
+        while let Some(u_i) = self.ustack.pop() {
             self.nits += 1;
             let u: usize = u_i.as_();
             trace!("u: {}", u);
@@ -186,7 +185,7 @@ impl<I: UnsignedInt + Integer> AuctionSolver<I, KhoslaSolver<I>> for KhoslaSolve
                 // move edge (u, v) out of matching
                 solution.person_to_object[moved_out_u] = I::max_value();
                 solution.num_unassigned += I::one();
-                ustack.push(moved_out_u_i);
+                self.ustack.push(moved_out_u_i);
             }
             // move new age (u, matched_v) to the matching
             solution.person_to_object[u] = matched_v_i;
@@ -198,5 +197,13 @@ impl<I: UnsignedInt + Integer> AuctionSolver<I, KhoslaSolver<I>> for KhoslaSolve
         trace!("prices: {:?}", self.prices);
 
         Ok(())
+    }
+}
+impl<I: UnsignedInt + Integer> KhoslaSolver<I> {
+    fn init_solve(&mut self, solution: &mut AuctionSolution<I>, maximize: bool) {
+        AuctionSolver::init_solve(self, solution, maximize);
+        self.ustack.clear();
+        self.ustack
+            .extend(num_iter::range(I::zero(), self.num_rows).rev());
     }
 }
