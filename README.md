@@ -6,4 +6,4 @@ Solvers for weighted perfect matching problem ([linear assignment](https://en.wi
    * **ForwardAuctionSolver** works better for symmetric assignment problems. It uses ε-scaling to speedup the auction algorithm. The implementation is based on [sslap](https://github.com/OllieBoyne/sslap). When there is no perfect matching it enters in endless loop and stops after `max_iterations` number of iterations.
 
 ## Usage
-See [tests](./src/solver.rs#261) for example usage.
+See [tests](./src/solver.rs#L261) for example usage.
