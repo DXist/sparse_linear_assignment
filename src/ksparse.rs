@@ -12,9 +12,9 @@ use tracing::trace;
 ///
 /// The algorithm is presented in [the article](https://arxiv.org/pdf/2101.07155.pdf).
 ///
-/// We denote `n = max(N, M)`, w<sup>max</sup> and w<sub>min</sub> - maximum and minimum weights in the graph
+/// We denote n = max(N, M), w<sub>max</sub> and w<sub>min</sub> - maximum and minimum weights in the graph
 /// The worst case runtime of the algorithm for sparse k-regular is O(nk(w<sub>max</sub> - w<sub>min</sub>) / ε) with
-/// high probability. For complete bipartite graphs the runtime is O(n<sup>2</sup> (w<sub>max</sub> - w<sub>min</sub>) / ε).
+/// high probability. For complete bipartite graphs the runtime is O(n<sup>2</sup>(w<sub>max</sub> - w<sub>min</sub>) / ε).
 ///
 /// If there is no perfect matching the algorithm finds good matching in finite number of steps.
 ///
