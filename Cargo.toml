@@ -1,6 +1,6 @@
 [package]
 name = "sparse_linear_assignment"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Rinat Shigapov <rinatshigapov@gmail.com>"]
 edition = "2018"
 description = "Solvers for sparse linear assignment problem based on the auction algorithm"
