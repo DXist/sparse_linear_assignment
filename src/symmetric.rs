@@ -13,9 +13,9 @@ use tracing::{info, trace};
 ///
 /// The implementation is based on [sslap](https://github.com/OllieBoyne/sslap).
 ///
-/// We denote `n = N`, `w_max` - maximum weight in the graph, m - number of edges
-/// The worst case runtime of the algorithm for complete asymmetric bipartite graph is O(n^2 * w_max / ε)
-/// For symmetric problem ε-scaling is employed and for integral weights the runtime complexity is O(n * m * log(n * w_max) / ε).
+/// We denote `n = N`, `w<sub>max</sub>` - maximum weight in the graph, m - number of edges
+/// The worst case runtime of the algorithm for complete asymmetric bipartite graph is O(n<sup>2</sup>w<sub>max</sub> / ε)
+/// For symmetric problem ε-scaling is employed and for integral weights the runtime complexity is O(nm log(nw<sub>max</sub>) / ε).
 ///
 /// If there is no perfect matching the algorithm enters in endless loop and terminates after
 /// configured number of `max_iterations`.
