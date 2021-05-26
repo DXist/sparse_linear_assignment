@@ -8,6 +8,6 @@ pub use crate::symmetric::ForwardAuctionSolver;
 #[cfg(feature = "khosla")]
 pub mod ksparse;
 pub mod solution;
-mod solver;
+pub mod solver;
 #[cfg(feature = "forward")]
 pub mod symmetric;

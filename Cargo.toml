@@ -6,7 +6,7 @@ edition = "2018"
 description = "Solvers for sparse linear assignment problem based on auction algorithms"
 readme = "README.md"
 repository = "https://github.com/DXist/sparse_linear_assignment"
-licence = "Apache-2.0"
+license = "Apache-2.0"
 keywords = ["linear-assignment", "weighted-matching", "optimization", "auction-algorithm", "sparse"]
 categories = ["algorithms", "mathematics", "science"]
 

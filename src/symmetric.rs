@@ -6,8 +6,21 @@ use num_iter;
 use num_traits::{AsPrimitive, FromPrimitive, NumAssign, PrimInt, Unsigned};
 use tracing::{info, trace};
 
-/// Solver for auction problem
-/// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
+/// Solver for weighted perfect matching problem (also known as linear assignment problem) with
+/// good runtime complexity for symmetric sparse bipartite graphs.
+/// It finds ε-optimal assignment of N people -> M objects (N <= M), by having people 'bid' for objects
+/// in parallel. For symmetric problem it uses ε-scaling.
+///
+/// The implementation is based on [sslap](https://github.com/OllieBoyne/sslap).
+///
+/// We denote `n = N`, `w_max` - maximum weight in the graph, m - number of edges
+/// The worst case runtime of the algorithm for complete asymmetric bipartite graph is O(n^2 * w_max / ε)
+/// For symmetric problem ε-scaling is employed and for integral weights the runtime complexity is O(n * m * log(n * w_max) / ε).
+///
+/// If there is no perfect matching the algorithm enters in endless loop and terminates after
+/// configured number of `max_iterations`.
+///
+/// See [tests](crate::solver) for example usage.
 #[derive(Clone)]
 pub struct ForwardAuctionSolver<I: UnsignedInt> {
     num_rows: I,

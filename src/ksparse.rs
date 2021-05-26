@@ -6,8 +6,19 @@ use num_integer::Integer;
 use num_iter;
 use tracing::trace;
 
-/// Solver for auction problem
-/// Which finds an assignment of N people -> M objects, by having people 'bid' for objects
+/// Solver for weighted perfect matching problem (also known as linear assignment problem) with tighter runtime complexity bound for k-left regular sparse bipartite graphs.
+/// It finds ε-optimal assignment of N people -> M objects (N <= M), by having people 'bid' for objects
+/// sequentially
+///
+/// The algorithm is presented in [the article](https://arxiv.org/pdf/2101.07155.pdf).
+///
+/// We denote `n = max(N, M)`, `w_max` and `w_min` - maximum and minimum weights in the graph
+/// The worst case runtime of the algorithm for sparse k-regular is O(n * k * (w_max - w_min) / ε) with
+/// high probability. For complete bipartite graphs the runtime is O(n^2 * (w_max - w_min) / ε).
+///
+/// If there is no perfect matching the algorithm finds good matching in finite number of steps.
+///
+/// See [tests](crate::solver) for example usage.
 #[derive(Clone)]
 pub struct KhoslaSolver<I: UnsignedInt + Integer> {
     num_rows: I,
