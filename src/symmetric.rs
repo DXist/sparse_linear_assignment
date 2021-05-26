@@ -215,7 +215,7 @@ impl<I: UnsignedInt> ForwardAuctionSolver<I> {
     }
 
     #[inline]
-    fn solve_with_params(
+    pub fn solve_with_params(
         &mut self,
         solution: &mut AuctionSolution<I>,
         maximize: bool,
