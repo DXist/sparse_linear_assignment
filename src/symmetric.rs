@@ -13,7 +13,7 @@ use tracing::{info, trace};
 ///
 /// The implementation is based on [sslap](https://github.com/OllieBoyne/sslap).
 ///
-/// We denote `n = N`, `w<sub>max</sub>` - maximum weight in the graph, m - number of edges
+/// We denote `n = N`, w<sub>max</sub> - maximum weight in the graph, m - number of edges
 /// The worst case runtime of the algorithm for complete asymmetric bipartite graph is O(n<sup>2</sup>w<sub>max</sub> / ε)
 /// For symmetric problem ε-scaling is employed and for integral weights the runtime complexity is O(nm log(nw<sub>max</sub>) / ε).
 ///
